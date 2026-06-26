@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import ustin.cz.service.ExternalApiService;
 import ustin.cz.service.FileHandlerService;
+import ustin.cz.util.RequestDetails;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -51,7 +52,7 @@ public class FileHandlerServiceImpl implements FileHandlerService {
     }
 
     @Override
-    public String processCisesInfo(Workbook workbook) {
+    public String processCisesInfo(Workbook workbook, RequestDetails details) {
         try {
             var values = readFirstColumn(workbook);
             log.info("Прочитано {} строк из файла", values.size());

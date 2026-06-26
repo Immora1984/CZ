@@ -8,6 +8,7 @@ import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
+import ustin.cz.exception.ExternalApiException;
 import ustin.cz.service.ExternalApiService;
 
 import java.io.IOException;
@@ -15,6 +16,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpResponse.BodyHandlers;
 import java.time.Duration;
 import java.time.Instant;
 
@@ -23,27 +25,23 @@ import java.time.Instant;
 @RequiredArgsConstructor
 public class ExternalApiServiceImpl implements ExternalApiService {
 
-    private final ObjectMapper objectMapper;
-    private final HttpClient httpClient;
-
     @Getter
     @Setter
     private String bearer;
-
-    // ✅ Время истечения токена
     private Instant tokenExpiryTime;
 
-    // ✅ Время жизни токена (55 минут, так как обычно 60 минут)
-    private static final Duration TOKEN_LIFETIME = Duration.ofMinutes(55);
+    private final HttpClient httpClient;
+    private final ObjectMapper objectMapper;
+
+    private static final Duration TOKEN_LIFETIME = Duration.ofHours(24);
 
     @Override
     @Retryable(
             retryFor = RuntimeException.class,
-            maxAttempts = 3,
             backoff = @Backoff(delay = 1000, multiplier = 2)
     )
-    public String getBearer() {
-        log.info("Запрос нового bearer токена");
+    public String getTokenFromExternalApi() {
+        log.info("Запрос нового bearer токена из внешнего API");
 
         var request = HttpRequest.newBuilder()
                 .uri(URI.create("https://markirovka.crpt.ru/oauth/token"))
@@ -56,13 +54,11 @@ public class ExternalApiServiceImpl implements ExternalApiService {
                 .build();
 
         try {
-            var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            var response = httpClient.send(request, BodyHandlers.ofString());
 
             if (response.statusCode() == 200) {
-                String newBearer = extractAccessToken(response.body());
+                var newBearer = extractAccessToken(response.body());
                 this.bearer = newBearer;
-
-                // ✅ Устанавливаем время истечения токена
                 this.tokenExpiryTime = Instant.now().plus(TOKEN_LIFETIME);
 
                 log.info("Bearer токен успешно получен. Истекает: {}", tokenExpiryTime);
@@ -75,34 +71,31 @@ public class ExternalApiServiceImpl implements ExternalApiService {
         } catch (IOException | InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("Ошибка при запросе токена", e);
-            throw new RuntimeException("Ошибка соединения с сервером авторизации", e);
+            throw new ExternalApiException.ApiException();
         }
     }
 
-    /**
-     * ✅ Проверяет, истек ли токен
-     */
     private boolean isTokenExpired() {
-        return bearer == null ||
-                tokenExpiryTime == null ||
-                Instant.now().isAfter(tokenExpiryTime);
+        return bearer == null || tokenExpiryTime == null || Instant.now().isAfter(tokenExpiryTime);
     }
 
-    /**
-     * ✅ Обновляет токен если истек
-     */
     private synchronized void refreshTokenIfNeeded() {
         if (isTokenExpired()) {
             log.info("Токен истек или отсутствует, обновляем...");
-            getBearer();
+            getTokenFromExternalApi();
         }
+    }
+
+    public String getCurrentBearerToken() {
+        refreshTokenIfNeeded();
+        return bearer;
     }
 
     @Override
     public String sendToCisesInfo(String body) {
-        refreshTokenIfNeeded();
+        var currentToken = getCurrentBearerToken();
 
-        if (bearer == null || bearer.isEmpty()) {
+        if (currentToken == null || currentToken.isEmpty()) {
             throw new RuntimeException("Bearer токен не получен");
         }
 
@@ -110,37 +103,21 @@ public class ExternalApiServiceImpl implements ExternalApiService {
         log.debug("Тело запроса: {}", body);
 
         try {
-            var request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://markirovka.crpt.ru/api/v3/true-api/cises/info"))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + bearer)
-                    .POST(HttpRequest.BodyPublishers.ofString(body))
-                    .timeout(Duration.ofSeconds(60))
-                    .build();
 
-            var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            var response = httpClient.send(doRequest(currentToken, body), BodyHandlers.ofString());
 
             int statusCode = response.statusCode();
-            String responseBody = response.body();
+            var responseBody = response.body();
 
             log.info("Статус ответа: {}", statusCode);
             log.debug("Тело ответа: {}", responseBody);
 
-            // ✅ Если токен протух (401), обновляем и повторяем запрос
             if (statusCode == 401) {
                 log.warn("Токен невалиден (401), обновляем и пробуем снова");
-                getBearer(); // Обновляем токен
 
-                // Повторяем запрос с новым токеном
-                var retryRequest = HttpRequest.newBuilder()
-                        .uri(URI.create("https://markirovka.crpt.ru/api/v3/true-api/cises/info"))
-                        .header("Content-Type", "application/json")
-                        .header("Authorization", "Bearer " + bearer)
-                        .POST(HttpRequest.BodyPublishers.ofString(body))
-                        .timeout(Duration.ofSeconds(60))
-                        .build();
+                getTokenFromExternalApi();
 
-                var retryResponse = httpClient.send(retryRequest, HttpResponse.BodyHandlers.ofString());
+                var retryResponse = httpClient.send(doRequest(getCurrentBearerToken(), body), BodyHandlers.ofString());
 
                 if (retryResponse.statusCode() == 200) {
                     log.info("Запрос успешно выполнен после обновления токена");
@@ -168,6 +145,16 @@ public class ExternalApiServiceImpl implements ExternalApiService {
         }
     }
 
+    private HttpRequest doRequest(String token, String body) {
+        return HttpRequest.newBuilder()
+                .uri(URI.create("https://markirovka.crpt.ru/api/v3/true-api/cises/info"))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + token)
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .timeout(Duration.ofSeconds(60))
+                .build();
+    }
+
     private String extractAccessToken(String responseBody) {
         try {
             var jsonNode = objectMapper.readTree(responseBody);
@@ -187,9 +174,6 @@ public class ExternalApiServiceImpl implements ExternalApiService {
         }
     }
 
-    /**
-     * ✅ Проверяет валидность токена
-     */
     public boolean isTokenValid() {
         return bearer != null &&
                 !bearer.isEmpty() &&
@@ -197,9 +181,6 @@ public class ExternalApiServiceImpl implements ExternalApiService {
                 Instant.now().isBefore(tokenExpiryTime);
     }
 
-    /**
-     * ✅ Получает оставшееся время жизни токена в секундах
-     */
     public long getTokenRemainingTimeSeconds() {
         if (tokenExpiryTime == null) {
             return 0;

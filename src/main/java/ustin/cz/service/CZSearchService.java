@@ -8,7 +8,7 @@ import ustin.cz.component.ReportType;
 import java.util.UUID;
 
 public interface CZSearchService {
-    Response getExcel(MultipartFile file, ReportType reportType, String sessionId);
+    Response process(MultipartFile file, ReportType reportType, String sessionId);
 
     Response check(UUID id);
 

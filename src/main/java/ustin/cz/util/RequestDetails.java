@@ -11,11 +11,12 @@ import java.util.UUID;
 @Setter
 public class RequestDetails {
     private UUID id;
-    private String fileName;
-    private String originalFileName;
+    private String fileName;          // ✅ Только одно поле для имени
     private byte[] fileBytes;
     private String sessionId;
     private RequestStatus status;
     private ReportType reportType;
     private String contentType;
+    private String result;            // ✅ Результат обработки
+    private String errorMessage;      // ✅ Ошибка
 }

@@ -1,7 +1,6 @@
 package ustin.cz.rest;
 
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +24,7 @@ public class CZController {
     Response process(@RequestPart @Valid @NotNull MultipartFile file,
                      @Valid @NotNull ReportType reportType,
                      HttpServletRequest httpServletRequest) {
-        return CZSearchService.getExcel(file, reportType, httpServletRequest.getSession().getId());
+        return CZSearchService.process(file, reportType, httpServletRequest.getSession().getId());
     }
 
     @GetMapping("/{id}")

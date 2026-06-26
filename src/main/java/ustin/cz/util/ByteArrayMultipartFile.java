@@ -1,7 +1,5 @@
 package ustin.cz.util;
 
-import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
 import lombok.NonNull;
 import org.springframework.web.multipart.MultipartFile;
 
