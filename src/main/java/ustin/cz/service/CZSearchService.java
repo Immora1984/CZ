@@ -8,9 +8,11 @@ import ustin.cz.component.ReportType;
 import java.util.UUID;
 
 public interface CZSearchService {
+
     Response process(MultipartFile file, ReportType reportType, String sessionId);
 
     Response check(UUID id);
 
     Resource download(UUID id);
+
 }

@@ -1,12 +1,14 @@
 package ustin.cz.service;
 
 import org.apache.poi.ss.usermodel.Workbook;
+import org.springframework.core.io.Resource;
 import org.springframework.web.multipart.MultipartFile;
-import ustin.cz.util.RequestDetails;
 
 public interface FileHandlerService {
 
     Workbook downloadAndConvert(MultipartFile file);
 
-    String processCisesInfo(Workbook workbook, RequestDetails requestDetails);
+    String processCisesInfo(Workbook workbook);
+
+    Resource createExcelResourceFromResponse(String jsonResponse);
 }

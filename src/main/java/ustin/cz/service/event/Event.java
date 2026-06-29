@@ -7,14 +7,13 @@ import ustin.cz.util.RequestDetails;
 
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Getter
 public class Event extends ApplicationEvent {
 
     private final UUID id;
     private final ReportType reportType;
-    private Map<UUID, RequestDetails> taskMap = new ConcurrentHashMap<>();
+    private final Map<UUID, RequestDetails> taskMap;
 
     public Event(Object source, UUID id, ReportType reportType, Map<UUID, RequestDetails> taskMap) {
         super(source);

@@ -5,17 +5,22 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.poifs.filesystem.POIFSFileSystem;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import ustin.cz.service.ExternalApiService;
 import ustin.cz.service.FileHandlerService;
-import ustin.cz.util.RequestDetails;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -27,7 +32,10 @@ import java.util.stream.IntStream;
 @RequiredArgsConstructor
 public class FileHandlerServiceImpl implements FileHandlerService {
 
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
+
     private final ExternalApiService externalApiService;
+    private final ObjectMapper objectMapper;
 
     @Override
     public Workbook downloadAndConvert(MultipartFile file) {
@@ -52,9 +60,10 @@ public class FileHandlerServiceImpl implements FileHandlerService {
     }
 
     @Override
-    public String processCisesInfo(Workbook workbook, RequestDetails details) {
+    public String processCisesInfo(Workbook workbook) {
         try {
             var values = readFirstColumn(workbook);
+
             log.info("Прочитано {} строк из файла", values.size());
 
             if (values.isEmpty()) {
@@ -67,17 +76,10 @@ public class FileHandlerServiceImpl implements FileHandlerService {
             return IntStream.range(0, batches.size())
                     .mapToObj(i -> {
                         try {
-                            List<String> batch = batches.get(i);
-                            int batchNumber = i + 1;
-
-                            // ✅ Обновляем прогресс
-
-                            var jsonArray = convertToJsonArray(batch);
-                            var response = externalApiService.sendToCisesInfo(jsonArray);
-
+                            var response = externalApiService.sendToCisesInfo(convertToJsonArray(batches.get(i)));
                             var cleanResponse = cleanResponse(response);
 
-                            log.info("Пачка {}/{} обработана", batchNumber, batches.size());
+                            log.info("Пачка {}/{} обработана", i + 1, batches.size());
 
                             try {
                                 Thread.sleep(500);
@@ -85,7 +87,6 @@ public class FileHandlerServiceImpl implements FileHandlerService {
                                 Thread.currentThread().interrupt();
                                 throw new RuntimeException(e);
                             }
-
                             return cleanResponse;
 
                         } catch (Exception e) {
@@ -102,7 +103,106 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         }
     }
 
-    private String convertToJsonArray(List<String> values) {
+    @Override
+    public Resource createExcelResourceFromResponse(String jsonResponse) {
+        try {
+            var rootNode = objectMapper.readTree(jsonResponse);
+            var workbook = new XSSFWorkbook();
+            var sheet = workbook.createSheet("CIS Info");
+
+            var headerRow = sheet.createRow(0);
+            String[] headers = {"CIS", "Type", "Number", "Date"};
+            var headerStyle = createHeaderStyle(workbook);
+
+            for (int i = 0; i < headers.length; i++) {
+                var cell = headerRow.createCell(i);
+                cell.setCellValue(headers[i]);
+                cell.setCellStyle(headerStyle);
+            }
+
+            int rowNum = 1;
+
+            if (rootNode.isArray()) {
+                for (JsonNode item : rootNode) {
+                    var cisInfo = item.get("cisInfo");
+                    if (cisInfo == null) continue;
+
+                    var cis = cisInfo.has("requestedCis") ?
+                            cisInfo.get("requestedCis").asString() :
+                            cisInfo.get("cis").asString();
+
+                    var certDoc = cisInfo.get("certDoc");
+
+                    if (certDoc != null && certDoc.isArray() && !certDoc.isEmpty()) {
+                        for (JsonNode doc : certDoc) {
+                            Row dataRow = sheet.createRow(rowNum++);
+                            dataRow.createCell(0).setCellValue(cis);
+                            var type = doc.has("type") ? doc.get("type").asString() : "";
+                            dataRow.createCell(1).setCellValue(type);
+                            var number = doc.has("number") ? doc.get("number").asString() : "";
+                            dataRow.createCell(2).setCellValue(number);
+                            var date = doc.has("date") ? doc.get("date").asString() : "";
+                            dataRow.createCell(3).setCellValue(date);
+                        }
+                    } else {
+                        var dataRow = sheet.createRow(rowNum++);
+                        dataRow.createCell(0).setCellValue(cis);
+                        dataRow.createCell(1).setCellValue("Нет данных");
+                        dataRow.createCell(2).setCellValue("Нет данных");
+                        dataRow.createCell(3).setCellValue("Нет данных");
+                    }
+                }
+            }
+
+            for (int i = 0; i < 4; i++) {
+                sheet.autoSizeColumn(i);
+                if (sheet.getColumnWidth(i) < 3000) {
+                    sheet.setColumnWidth(i, 3000);
+                }
+            }
+
+            var outputStream = new ByteArrayOutputStream();
+            workbook.write(outputStream);
+            workbook.close();
+
+            var excelBytes = outputStream.toByteArray();
+
+            return new ByteArrayResource(excelBytes) {
+                @Override
+                public String getFilename() {
+                    return generateFileName();
+                }
+            };
+
+        } catch (Exception e) {
+            log.error("Ошибка при формировании Excel-файла: {}", e.getMessage(), e);
+            try {
+                throw new IOException("Ошибка при создании Excel файла: " + e.getMessage(), e);
+            } catch (IOException ex) {
+                throw new RuntimeException(ex);
+            }
+        }
+    }
+
+    private String generateFileName() {return "cis_info_" + LocalDateTime.now().format(DATE_FORMATTER) + ".xlsx";}
+
+    private CellStyle createHeaderStyle(Workbook workbook) {
+        var style = workbook.createCellStyle();
+        var font = workbook.createFont();
+        font.setBold(true);
+        font.setFontHeightInPoints((short) 12);
+        style.setFont(font);
+        style.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        return style;
+    }
+
+
+    public String convertToJsonArray(List<String> values) {
         return values.stream()
                 .map(s -> "\"" + s.replace("\"", "\\\"") + "\"")
                 .collect(Collectors.joining(",", "[", "]"));
@@ -113,14 +213,14 @@ public class FileHandlerServiceImpl implements FileHandlerService {
             return "";
         }
 
-        String trimmed = response.trim();
+        var trimmed = response.trim();
         if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
             return trimmed.substring(1, trimmed.length() - 1);
         }
         return trimmed;
     }
 
-    private List<List<String>> splitIntoBatches(List<String> values) {
+    public List<List<String>> splitIntoBatches(List<String> values) {
         List<List<String>> batches = new ArrayList<>();
         int batchSize = 1000;
         for (int i = 0; i < values.size(); i += batchSize) {
@@ -130,7 +230,7 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         return batches;
     }
 
-    private List<String> readFirstColumn(Workbook workbook) {
+    public List<String> readFirstColumn(Workbook workbook) {
         List<String> values = new ArrayList<>();
         var sheet = workbook.getSheetAt(0);
 

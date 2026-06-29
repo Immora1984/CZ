@@ -15,7 +15,6 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.time.Duration;
 import java.time.Instant;
@@ -79,16 +78,16 @@ public class ExternalApiServiceImpl implements ExternalApiService {
         return bearer == null || tokenExpiryTime == null || Instant.now().isAfter(tokenExpiryTime);
     }
 
-    private synchronized void refreshTokenIfNeeded() {
+    private synchronized String refreshTokenIfNeeded() {
         if (isTokenExpired()) {
             log.info("Токен истек или отсутствует, обновляем...");
-            getTokenFromExternalApi();
+            return getTokenFromExternalApi();
         }
+        return bearer;
     }
 
     public String getCurrentBearerToken() {
-        refreshTokenIfNeeded();
-        return bearer;
+        return refreshTokenIfNeeded();
     }
 
     @Override
@@ -103,7 +102,6 @@ public class ExternalApiServiceImpl implements ExternalApiService {
         log.debug("Тело запроса: {}", body);
 
         try {
-
             var response = httpClient.send(doRequest(currentToken, body), BodyHandlers.ofString());
 
             int statusCode = response.statusCode();
@@ -164,7 +162,7 @@ public class ExternalApiServiceImpl implements ExternalApiService {
                 throw new RuntimeException("Неверный формат ответа авторизации");
             }
 
-            String token = jsonNode.get("access_token").asString();
+            var token = jsonNode.get("access_token").asString();
             log.info("Токен извлечен успешно. Длина: {}", token.length());
             return token;
 
@@ -172,20 +170,5 @@ public class ExternalApiServiceImpl implements ExternalApiService {
             log.error("Ошибка парсинга ответа авторизации: {}", responseBody, e);
             throw new RuntimeException("Ошибка парсинга ответа", e);
         }
-    }
-
-    public boolean isTokenValid() {
-        return bearer != null &&
-                !bearer.isEmpty() &&
-                tokenExpiryTime != null &&
-                Instant.now().isBefore(tokenExpiryTime);
-    }
-
-    public long getTokenRemainingTimeSeconds() {
-        if (tokenExpiryTime == null) {
-            return 0;
-        }
-        long remaining = Duration.between(Instant.now(), tokenExpiryTime).getSeconds();
-        return Math.max(0, remaining);
     }
 }
