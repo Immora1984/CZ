@@ -24,16 +24,6 @@ public class UserTaskLimiter {
                 .incrementAndGet();
     }
 
-    public void removeUserTask(String sessionId) {
-        var count = sessionTasks.get(sessionId);
-        if (count != null) {
-            int newCount = count.decrementAndGet();
-            if (newCount == 0) {
-                sessionTasks.remove(sessionId);
-            }
-        }
-    }
-
     public int getActiveTaskCount(String sessionId) {
         var count = sessionTasks.get(sessionId);
         return count != null ? count.get() : 0;
