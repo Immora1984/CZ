@@ -2,7 +2,6 @@ package ustin.cz.component;
 
 import lombok.Getter;
 import lombok.Setter;
-import org.springframework.core.io.Resource;
 
 import java.util.UUID;
 

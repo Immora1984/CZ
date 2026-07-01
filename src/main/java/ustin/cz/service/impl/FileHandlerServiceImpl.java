@@ -6,11 +6,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.poifs.filesystem.POIFSFileSystem;
 import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.JsonToken;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import ustin.cz.service.ExternalApiService;
@@ -27,164 +30,280 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 
-@Slf4j
-@Service
-@RequiredArgsConstructor
-public class FileHandlerServiceImpl implements FileHandlerService {
+    @Slf4j
+    @Service
+    @RequiredArgsConstructor
+    public class FileHandlerServiceImpl implements FileHandlerService {
 
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
+        private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 
-    private final ExternalApiService externalApiService;
-    private final ObjectMapper objectMapper;
+        private final ExternalApiService externalApiService;
+        private final ObjectMapper objectMapper;
 
-    @Override
-    public Workbook downloadAndConvert(MultipartFile file) {
-        try {
-            var bytes = file.getBytes();
+        @Override
+        public Workbook downloadAndConvert(MultipartFile file) {
+            try {
+                var bytes = file.getBytes();
 
-            if (isXlsx(bytes)) {
-                return new XSSFWorkbook(new ByteArrayInputStream(bytes));
-            } else if (isXls(bytes)) {
-                return new HSSFWorkbook(new POIFSFileSystem(new ByteArrayInputStream(bytes)));
-            } else {
-                try {
+                if (isXlsx(bytes)) {
                     return new XSSFWorkbook(new ByteArrayInputStream(bytes));
-                } catch (Exception e) {
+                } else if (isXls(bytes)) {
                     return new HSSFWorkbook(new POIFSFileSystem(new ByteArrayInputStream(bytes)));
+                } else {
+                    try {
+                        return new XSSFWorkbook(new ByteArrayInputStream(bytes));
+                    } catch (Exception e) {
+                        return new HSSFWorkbook(new POIFSFileSystem(new ByteArrayInputStream(bytes)));
+                    }
                 }
+            } catch (IOException e) {
+                log.error("Ошибка при конвертации файла: {}", e.getMessage(), e);
+                throw new RuntimeException("Не удалось обработать Excel файл", e);
             }
-        } catch (IOException e) {
-            log.error("Ошибка при конвертации файла: {}", e.getMessage(), e);
-            throw new RuntimeException("Не удалось обработать Excel файл", e);
         }
-    }
 
-    @Override
-    public String processCisesInfo(Workbook workbook) {
-        try {
-            var values = readFirstColumn(workbook);
+        @Override
+        public String processCisesInfo(Workbook workbook) {
+            try {
+                var values = readFirstColumn(workbook);
 
-            log.info("Прочитано {} строк из файла", values.size());
+                log.info("Прочитано {} строк из файла", values.size());
 
-            if (values.isEmpty()) {
-                throw new RuntimeException("Файл пуст или не содержит данных в первом столбце");
-            }
+                if (values.isEmpty()) {
+                    throw new RuntimeException("Файл пуст или не содержит данных в первом столбце");
+                }
 
-            var batches = splitIntoBatches(values);
-            log.info("Разбито на {} пачек по 1000 строк", batches.size());
+                var batches = splitIntoBatches(values);
+                log.info("Разбито на {} пачек по 1000 строк", batches.size());
 
-            return IntStream.range(0, batches.size())
-                    .mapToObj(i -> {
-                        try {
-                            var response = externalApiService.sendToCisesInfo(convertToJsonArray(batches.get(i)));
-                            var cleanResponse = cleanResponse(response);
-
-                            log.info("Пачка {}/{} обработана", i + 1, batches.size());
-
+                return IntStream.range(0, batches.size())
+                        .mapToObj(i -> {
                             try {
-                                Thread.sleep(500);
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                                throw new RuntimeException(e);
+                                var response = externalApiService.sendToCisesInfo(convertToJsonArray(batches.get(i)));
+                                var cleanResponse = cleanResponse(response);
+
+                                log.info("Пачка {}/{} обработана", i + 1, batches.size());
+
+                                try {
+                                    Thread.sleep(500);
+                                } catch (InterruptedException e) {
+                                    Thread.currentThread().interrupt();
+                                    throw new RuntimeException(e);
+                                }
+                                return cleanResponse;
+
+                            } catch (Exception e) {
+                                log.error("Ошибка при обработке пачки {}", i + 1, e);
+                                return "";
                             }
-                            return cleanResponse;
+                        })
+                        .filter(StringUtils::isNotBlank)
+                        .collect(Collectors.joining(",", "[", "]"));
 
-                        } catch (Exception e) {
-                            log.error("Ошибка при обработке пачки {}", i + 1, e);
-                            return "";
-                        }
-                    })
-                    .filter(StringUtils::isNotBlank)
-                    .collect(Collectors.joining(",", "[", "]"));
-
-        } catch (Exception e) {
-            log.error("Ошибка при обработке cises/info: {}", e.getMessage(), e);
-            throw new RuntimeException("Ошибка обработки данных", e);
-        }
-    }
-
-    @Override
-    public Resource createExcelResourceFromResponse(String jsonResponse) {
-        try {
-            var rootNode = objectMapper.readTree(jsonResponse);
-            var workbook = new XSSFWorkbook();
-            var sheet = workbook.createSheet("CIS Info");
-
-            var headerRow = sheet.createRow(0);
-            String[] headers = {"CIS", "Type", "Number", "Date"};
-            var headerStyle = createHeaderStyle(workbook);
-
-            for (int i = 0; i < headers.length; i++) {
-                var cell = headerRow.createCell(i);
-                cell.setCellValue(headers[i]);
-                cell.setCellStyle(headerStyle);
+            } catch (Exception e) {
+                log.error("Ошибка при обработке cises/info: {}", e.getMessage(), e);
+                throw new RuntimeException("Ошибка обработки данных", e);
             }
+        }
 
-            int rowNum = 1;
+        @Override
+        public Resource createExcelResourceFromResponse(String jsonResponse) {
+            try (var workbook = new SXSSFWorkbook(100);
+                 var outputStream = new ByteArrayOutputStream()) {
 
-            if (rootNode.isArray()) {
-                for (JsonNode item : rootNode) {
-                    var cisInfo = item.get("cisInfo");
-                    if (cisInfo == null) continue;
+                var sheet = workbook.createSheet("CIS Info");
+                createHeaders(sheet);
 
-                    var cis = cisInfo.has("requestedCis") ?
-                            cisInfo.get("requestedCis").asString() :
-                            cisInfo.get("cis").asString();
+                int rowNum = 1;
 
-                    var certDoc = cisInfo.get("certDoc");
+                try (var parser = objectMapper.createParser(jsonResponse)) {
+                    if (parser.nextToken() != JsonToken.START_ARRAY) {
+                        throw new RuntimeException("Ожидался массив JSON");
+                    }
 
-                    if (certDoc != null && certDoc.isArray() && !certDoc.isEmpty()) {
-                        for (JsonNode doc : certDoc) {
-                            Row dataRow = sheet.createRow(rowNum++);
-                            dataRow.createCell(0).setCellValue(cis);
-                            var type = doc.has("type") ? doc.get("type").asString() : "";
-                            dataRow.createCell(1).setCellValue(type);
-                            var number = doc.has("number") ? doc.get("number").asString() : "";
-                            dataRow.createCell(2).setCellValue(number);
-                            var date = doc.has("date") ? doc.get("date").asString() : "";
-                            dataRow.createCell(3).setCellValue(date);
+                    List<Object[]> rowBuffer = new ArrayList<>(1000);
+
+                    while (parser.nextToken() != JsonToken.END_ARRAY) {
+                        var rowData = parseCisInfo(parser);
+                        if (rowData != null && !rowData.isEmpty()) {
+                            rowBuffer.addAll(rowData);
+
+                            if (rowBuffer.size() >= 1000) {
+                                rowNum = flushBuffer(rowBuffer, sheet, rowNum);
+                                rowBuffer.clear();
+                            }
                         }
+                    }
+
+                    if (!rowBuffer.isEmpty()) {
+                        flushBuffer(rowBuffer, sheet, rowNum);
+                        rowBuffer.clear();
+                    }
+                }
+
+                setColumnWidths(sheet);
+
+                workbook.write(outputStream);
+                workbook.dispose();
+
+                var excelBytes = outputStream.toByteArray();
+
+                return new ByteArrayResource(excelBytes) {
+                    @Override
+                    public String getFilename() {
+                        return generateFileName();
+                    }
+                };
+
+            } catch (Exception e) {
+                log.error("Ошибка при формировании Excel-файла: {}", e.getMessage(), e);
+                throw new RuntimeException("Ошибка при создании Excel файла: " + e.getMessage(), e);
+            }
+        }
+
+        private List<Object[]> parseCisInfo(JsonParser parser) {
+            List<Object[]> certDataList = new ArrayList<>();
+
+            if (parser.currentToken() != JsonToken.START_OBJECT) return certDataList;
+
+            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                var fieldName = parser.currentName();
+
+                if (fieldName == null) continue;
+
+                parser.nextToken();
+
+                if ("cisInfo".equals(fieldName)) {
+                    if (parser.currentToken() == JsonToken.START_OBJECT) {
+                        return parseCisInfoObject(parser);
                     } else {
-                        var dataRow = sheet.createRow(rowNum++);
-                        dataRow.createCell(0).setCellValue(cis);
-                        dataRow.createCell(1).setCellValue("Нет данных");
-                        dataRow.createCell(2).setCellValue("Нет данных");
-                        dataRow.createCell(3).setCellValue("Нет данных");
+                        parser.skipChildren();
                     }
                 }
             }
 
-            for (int i = 0; i < 4; i++) {
-                sheet.autoSizeColumn(i);
-                if (sheet.getColumnWidth(i) < 3000) {
-                    sheet.setColumnWidth(i, 3000);
+            return certDataList;
+        }
+
+        private List<Object[]> parseCisInfoObject(JsonParser parser) {
+            final String[] cisHolder = {null};
+            List<Object[]> certDataList = new ArrayList<>();
+
+            if (parser.currentToken() != JsonToken.START_OBJECT) return certDataList;
+
+            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                var fieldName = parser.currentName();
+
+                if (fieldName == null) continue;
+
+                parser.nextToken();
+
+                if ("requestedCis".equals(fieldName) || "cis".equals(fieldName)) {
+                    cisHolder[0] = parser.getValueAsString();
+                } else if ("certDoc".equals(fieldName)) {
+                    if (parser.currentToken() == JsonToken.START_ARRAY) {
+                        var parsedDocs = parseCertDocs(parser, cisHolder[0]);
+                        certDataList.addAll(parsedDocs);
+                    }
+                } else {
+                    parser.skipChildren();
                 }
             }
 
-            var outputStream = new ByteArrayOutputStream();
-            workbook.write(outputStream);
-            workbook.close();
-
-            var excelBytes = outputStream.toByteArray();
-
-            return new ByteArrayResource(excelBytes) {
-                @Override
-                public String getFilename() {
-                    return generateFileName();
-                }
-            };
-
-        } catch (Exception e) {
-            log.error("Ошибка при формировании Excel-файла: {}", e.getMessage(), e);
-            try {
-                throw new IOException("Ошибка при создании Excel файла: " + e.getMessage(), e);
-            } catch (IOException ex) {
-                throw new RuntimeException(ex);
+            if (certDataList.isEmpty() && cisHolder[0] != null && !cisHolder[0].isEmpty()) {
+                certDataList.add(new Object[]{cisHolder[0], "Нет данных", "Нет данных", "Нет данных"});
             }
+
+            return certDataList;
+        }
+
+        private List<Object[]> parseCertDocs(JsonParser parser, String cis) {
+            List<Object[]> result = new ArrayList<>();
+
+            if (parser.currentToken() != JsonToken.START_ARRAY) return result;
+
+            while (parser.nextToken() != JsonToken.END_ARRAY) {
+                if (parser.currentToken() == JsonToken.START_OBJECT) {
+                    String type = null, number = null, date = null;
+
+                    while (parser.nextToken() != JsonToken.END_OBJECT) {
+                        var fieldName = parser.currentName();
+
+                        if (fieldName == null) continue;
+
+                        parser.nextToken();
+
+                        switch (fieldName) {
+                            case "type" -> type = parser.getValueAsString();
+                            case "number" -> number = parser.getValueAsString();
+                            case "date" -> date = parser.getValueAsString();
+                            default -> parser.skipChildren();
+                        }
+                    }
+
+                    result.add(new Object[]{
+                            cis != null ? cis : "",
+                            type != null ? type : "",
+                            number != null ? number : "",
+                            date != null ? date : ""
+                    });
+                } else {
+                    parser.skipChildren();
+                }
+            }
+
+            return result;
+        }
+
+        private int flushBuffer(List<Object[]> buffer, Sheet sheet, int startRow) {
+            int currentRow = startRow;
+            for (Object[] rowData : buffer) {
+                Row row = sheet.createRow(currentRow++);
+                for (int i = 0; i < Math.min(rowData.length, 4); i++) {
+                    Object value = rowData[i];
+                    Cell cell = row.createCell(i);
+                    if (value != null) {
+                        cell.setCellValue(value.toString());
+                    } else {
+                        cell.setCellValue("");
+                    }
+                }
+            }
+            return currentRow;
+        }
+
+    private void createHeaders(Sheet sheet) {
+        var headerRow = sheet.createRow(0);
+        String[] headers = {"CIS", "Type", "Number", "Date"};
+
+        var headerStyle = getHeaderStyle(sheet.getWorkbook());
+
+        for (int i = 0; i < headers.length; i++) {
+            var cell = headerRow.createCell(i);
+            cell.setCellValue(headers[i]);
+            cell.setCellStyle(headerStyle);
         }
     }
 
-    private String generateFileName() {return "cis_info_" + LocalDateTime.now().format(DATE_FORMATTER) + ".xlsx";}
+    private CellStyle cachedHeaderStyle;
+
+    private CellStyle getHeaderStyle(Workbook workbook) {
+        if (cachedHeaderStyle == null) {
+            cachedHeaderStyle = createHeaderStyle(workbook);
+        }
+        return cachedHeaderStyle;
+    }
+
+    private void setColumnWidths(Sheet sheet) {
+        int[] widths = {20, 15, 25, 15};
+        for (int i = 0; i < widths.length; i++) {
+            int width = widths[i] * 256;
+            if (width < 3000) {
+                width = 3000;
+            }
+            sheet.setColumnWidth(i, width);
+        }
+    }
 
     private CellStyle createHeaderStyle(Workbook workbook) {
         var style = workbook.createCellStyle();
@@ -200,6 +319,8 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         style.setBorderRight(BorderStyle.THIN);
         return style;
     }
+
+    private String generateFileName() {return "cis_info_" + LocalDateTime.now().format(DATE_FORMATTER) + ".xlsx";}
 
 
     public String convertToJsonArray(List<String> values) {
