@@ -10,5 +10,5 @@ public interface FileHandlerService {
 
     String processCisesInfo(Workbook workbook);
 
-    Resource createExcelResourceFromResponse(String jsonResponse);
+    Resource createResourceFromResponse(String jsonResponse);
 }
