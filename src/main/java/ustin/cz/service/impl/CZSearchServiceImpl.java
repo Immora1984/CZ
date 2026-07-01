@@ -64,7 +64,10 @@ public class CZSearchServiceImpl implements CZSearchService {
 
         log.info("Задача {} создана для сессии {}", taskId, sessionId);
 
-        eventPublisher.publishEvent(new Event(this, details.getId(), details.getReportType(), taskMap));
+        var event = new Event(this, details.getId(), details.getReportType(), taskMap);
+        eventPublisher.publishEvent(event);
+
+        log.info("Опубликовано событие: {}", event);
 
         var response = new Response();
         response.setId(taskId);

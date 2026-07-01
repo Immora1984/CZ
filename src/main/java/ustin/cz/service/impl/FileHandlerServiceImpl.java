@@ -14,7 +14,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import tools.jackson.core.JsonParser;
 import tools.jackson.core.JsonToken;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import ustin.cz.service.ExternalApiService;
 import ustin.cz.service.FileHandlerService;
@@ -135,7 +134,7 @@ public class FileHandlerServiceImpl implements FileHandlerService {
                 }
 
                 if (!rowBuffer.isEmpty()) {
-                    flushBuffer(rowBuffer, sheet, rowNum);
+                    rowNum = flushBuffer(rowBuffer, sheet, rowNum);
                     rowBuffer.clear();
                 }
             }
@@ -160,7 +159,7 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         }
     }
 
-    private List<Object[]> parseCisInfo(JsonParser parser) {
+    private List<Object[]> parseCisInfo(JsonParser parser) throws IOException {
         List<Object[]> certDataList = new ArrayList<>();
 
         if (parser.currentToken() != JsonToken.START_OBJECT) return certDataList;
@@ -184,8 +183,8 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         return certDataList;
     }
 
-    private List<Object[]> parseCisInfoObject(JsonParser parser) {
-        final String[] cisHolder = {null};
+    private List<Object[]> parseCisInfoObject(JsonParser parser) throws IOException {
+        CisInfoData data = new CisInfoData();
         List<Object[]> certDataList = new ArrayList<>();
 
         if (parser.currentToken() != JsonToken.START_OBJECT) return certDataList;
@@ -197,33 +196,65 @@ public class FileHandlerServiceImpl implements FileHandlerService {
 
             parser.nextToken();
 
-            if ("requestedCis".equals(fieldName) || "cis".equals(fieldName)) {
-                cisHolder[0] = parser.getValueAsString();
-            } else if ("certDoc".equals(fieldName)) {
-                if (parser.currentToken() == JsonToken.START_ARRAY) {
-                    var parsedDocs = parseCertDocs(parser, cisHolder[0]);
-                    certDataList.addAll(parsedDocs);
+            switch (fieldName) {
+                case "requestedCis", "cis" -> data.cis = parser.getValueAsString();
+                case "gtin" -> data.gtin = parser.getValueAsString();
+                case "productName" -> data.productName = parser.getValueAsString();
+                case "productGroup" -> data.productGroup = parser.getValueAsString();
+                case "productGroupId" -> data.productGroupId = parser.getValueAsString();
+                case "brand" -> data.brand = parser.getValueAsString();
+                case "tnVedEaes" -> data.tnVedEaes = parser.getValueAsString();
+                case "tnVedEaesGroup" -> data.tnVedEaesGroup = parser.getValueAsString();
+                case "manufacturerName" -> data.manufacturerName = parser.getValueAsString();
+                case "manufacturerInn" -> data.manufacturerInn = parser.getValueAsString();
+                case "producerName" -> data.producerName = parser.getValueAsString();
+                case "producerInn" -> data.producerInn = parser.getValueAsString();
+                case "ownerName" -> data.ownerName = parser.getValueAsString();
+                case "ownerInn" -> data.ownerInn = parser.getValueAsString();
+                case "status" -> data.status = parser.getValueAsString();
+                case "statusEx" -> data.statusEx = parser.getValueAsString();
+                case "withdrawReason" -> data.withdrawReason = parser.getValueAsString();
+                case "markWithdraw" -> data.markWithdraw = parser.getValueAsString();
+                case "isTracking" -> data.isTracking = parser.getValueAsString();
+                case "isMultipleSales" -> data.isMultipleSales = parser.getValueAsString();
+                case "cisTrackingType" -> data.cisTrackingType = parser.getValueAsString();
+                case "packageType" -> data.packageType = parser.getValueAsString();
+                case "generalPackageType" -> data.generalPackageType = parser.getValueAsString();
+                case "emissionType" -> data.emissionType = parser.getValueAsString();
+                case "emissionDate" -> data.emissionDate = parser.getValueAsString();
+                case "applicationDate" -> data.applicationDate = parser.getValueAsString();
+                case "introducedDate" -> data.introducedDate = parser.getValueAsString();
+                case "producedDate" -> data.producedDate = parser.getValueAsString();
+                case "certDoc" -> {
+                    if (parser.currentToken() == JsonToken.START_ARRAY) {
+                        data.certDocs = parseCertDocs(parser);
+                    }
                 }
-            } else {
-                parser.skipChildren();
+                default -> parser.skipChildren();
             }
         }
 
-        if (certDataList.isEmpty() && cisHolder[0] != null && !cisHolder[0].isEmpty()) {
-            certDataList.add(new Object[]{cisHolder[0], "Нет данных", "Нет данных", "Нет данных"});
+        // Если есть сертификаты - создаем строку для каждого
+        if (!data.certDocs.isEmpty()) {
+            for (CertDocData cert : data.certDocs) {
+                certDataList.add(data.toRowArray(cert));
+            }
+        } else if (data.cis != null && !data.cis.isEmpty()) {
+            // Если нет сертификатов - создаем строку с "Нет данных"
+            certDataList.add(data.toRowArray(null));
         }
 
         return certDataList;
     }
 
-    private List<Object[]> parseCertDocs(JsonParser parser, String cis) {
-        List<Object[]> result = new ArrayList<>();
+    private List<CertDocData> parseCertDocs(JsonParser parser) throws IOException {
+        List<CertDocData> result = new ArrayList<>();
 
         if (parser.currentToken() != JsonToken.START_ARRAY) return result;
 
         while (parser.nextToken() != JsonToken.END_ARRAY) {
             if (parser.currentToken() == JsonToken.START_OBJECT) {
-                String type = null, number = null, date = null;
+                CertDocData cert = new CertDocData();
 
                 while (parser.nextToken() != JsonToken.END_OBJECT) {
                     var fieldName = parser.currentName();
@@ -233,19 +264,16 @@ public class FileHandlerServiceImpl implements FileHandlerService {
                     parser.nextToken();
 
                     switch (fieldName) {
-                        case "type" -> type = parser.getValueAsString();
-                        case "number" -> number = parser.getValueAsString();
-                        case "date" -> date = parser.getValueAsString();
+                        case "type" -> cert.type = parser.getValueAsString();
+                        case "number" -> cert.number = parser.getValueAsString();
+                        case "date" -> cert.date = parser.getValueAsString();
+                        case "statusGroup" -> cert.statusGroup = parser.getValueAsString();
+                        case "indx" -> cert.indx = parser.getValueAsString();
                         default -> parser.skipChildren();
                     }
                 }
 
-                result.add(new Object[]{
-                        cis != null ? cis : "",
-                        type != null ? type : "",
-                        number != null ? number : "",
-                        date != null ? date : ""
-                });
+                result.add(cert);
             } else {
                 parser.skipChildren();
             }
@@ -254,10 +282,88 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         return result;
     }
 
+    private static class CisInfoData {
+        String cis;
+        String gtin;
+        String productName;
+        String productGroup;
+        String productGroupId;
+        String brand;
+        String tnVedEaes;
+        String tnVedEaesGroup;
+        String manufacturerName;
+        String manufacturerInn;
+        String producerName;
+        String producerInn;
+        String ownerName;
+        String ownerInn;
+        String status;
+        String statusEx;
+        String withdrawReason;
+        String markWithdraw;
+        String isTracking;
+        String isMultipleSales;
+        String cisTrackingType;
+        String packageType;
+        String generalPackageType;
+        String emissionType;
+        String emissionDate;
+        String applicationDate;
+        String introducedDate;
+        String producedDate;
+        List<CertDocData> certDocs = new ArrayList<>();
+
+        Object[] toRowArray(CertDocData cert) {
+            return new Object[]{
+                    cis != null ? cis : "",
+                    gtin != null ? gtin : "",
+                    productName != null ? productName : "",
+                    productGroup != null ? productGroup : "",
+                    productGroupId != null ? productGroupId : "",
+                    brand != null ? brand : "",
+                    tnVedEaes != null ? tnVedEaes : "",
+                    tnVedEaesGroup != null ? tnVedEaesGroup : "",
+                    manufacturerName != null ? manufacturerName : "",
+                    manufacturerInn != null ? manufacturerInn : "",
+                    producerName != null ? producerName : "",
+                    producerInn != null ? producerInn : "",
+                    ownerName != null ? ownerName : "",
+                    ownerInn != null ? ownerInn : "",
+                    status != null ? status : "",
+                    statusEx != null ? statusEx : "",
+                    withdrawReason != null ? withdrawReason : "",
+                    markWithdraw != null ? markWithdraw : "",
+                    isTracking != null ? isTracking : "",
+                    isMultipleSales != null ? isMultipleSales : "",
+                    cisTrackingType != null ? cisTrackingType : "",
+                    packageType != null ? packageType : "",
+                    generalPackageType != null ? generalPackageType : "",
+                    emissionType != null ? emissionType : "",
+                    emissionDate != null ? emissionDate : "",
+                    applicationDate != null ? applicationDate : "",
+                    introducedDate != null ? introducedDate : "",
+                    producedDate != null ? producedDate : "",
+                    cert != null ? cert.type : "Нет данных",
+                    cert != null ? cert.number : "Нет данных",
+                    cert != null ? cert.date : "Нет данных",
+                    cert != null ? cert.statusGroup : "Нет данных",
+                    cert != null ? cert.indx : "Нет данных"
+            };
+        }
+    }
+
+    private static class CertDocData {
+        String type;
+        String number;
+        String date;
+        String statusGroup;
+        String indx;
+    }
+
     private int flushBuffer(List<Object[]> buffer, Sheet sheet, int startRow) {
         for (Object[] rowData : buffer) {
             var row = sheet.createRow(startRow++);
-            for (int i = 0; i < Math.min(rowData.length, 4); i++) {
+            for (int i = 0; i < rowData.length; i++) {
                 Object value = rowData[i];
                 Cell cell = row.createCell(i);
                 if (value != null) {
@@ -272,7 +378,17 @@ public class FileHandlerServiceImpl implements FileHandlerService {
 
     private void createHeaders(Sheet sheet) {
         var headerRow = sheet.createRow(0);
-        String[] headers = {"CIS", "Type", "Number", "Date"};
+        String[] headers = {
+                "CIS", "GTIN", "Product Name", "Product Group", "Product Group ID",
+                "Brand", "TN VED EAES", "TN VED EAES Group", "Manufacturer Name",
+                "Manufacturer INN", "Producer Name", "Producer INN", "Owner Name",
+                "Owner INN", "Status", "Status Ex", "Withdraw Reason", "Mark Withdraw",
+                "Is Tracking", "Is Multiple Sales", "CIS Tracking Type", "Package Type",
+                "General Package Type", "Emission Type", "Emission Date",
+                "Application Date", "Introduced Date", "Produced Date",
+                "Certificate Type", "Certificate Number", "Certificate Date",
+                "Certificate Status Group", "Certificate Index"
+        };
 
         var headerStyle = getHeaderStyle(sheet.getWorkbook());
 
@@ -283,17 +399,12 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         }
     }
 
-    private CellStyle cachedHeaderStyle;
-
-    private CellStyle getHeaderStyle(Workbook workbook) {
-        if (cachedHeaderStyle == null) {
-            cachedHeaderStyle = createHeaderStyle(workbook);
-        }
-        return cachedHeaderStyle;
-    }
-
     private void setColumnWidths(Sheet sheet) {
-        int[] widths = {20, 15, 25, 15};
+        int[] widths = {
+                25, 15, 40, 15, 15, 15, 15, 15, 30, 18, 30, 18, 30, 18,
+                15, 15, 18, 15, 15, 18, 18, 15, 20, 15, 20, 20, 20, 20,
+                20, 25, 15, 20, 15
+        };
         for (int i = 0; i < widths.length; i++) {
             int width = widths[i] * 256;
             if (width < 3000) {
@@ -301,6 +412,15 @@ public class FileHandlerServiceImpl implements FileHandlerService {
             }
             sheet.setColumnWidth(i, width);
         }
+    }
+
+    private CellStyle cachedHeaderStyle;
+
+    private CellStyle getHeaderStyle(Workbook workbook) {
+        if (cachedHeaderStyle == null) {
+            cachedHeaderStyle = createHeaderStyle(workbook);
+        }
+        return cachedHeaderStyle;
     }
 
     private CellStyle createHeaderStyle(Workbook workbook) {

@@ -26,8 +26,9 @@ public class CisSearchReportHandlerImpl implements ReportHandler {
 
         log.info("Обработка CIS_INFO отчета");
 
-        var multipartFile = event.getTaskMap().get(event.getId()).getFile();
-        var workbook = fileHandlerService.downloadAndConvert(multipartFile);
+        event.getTaskMap().get(event.getId()).setStatus(RequestStatus.PROCESS);
+
+        var workbook = fileHandlerService.downloadAndConvert(event.getTaskMap().get(event.getId()).getFile());
         var jsonResult = fileHandlerService.processCisesInfo(workbook);
         var resource = fileHandlerService.createResourceFromResponse(jsonResult);
 
