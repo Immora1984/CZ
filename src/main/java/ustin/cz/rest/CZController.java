@@ -12,7 +12,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import ustin.cz.component.Response;
 import ustin.cz.component.ReportType;
-import ustin.cz.service.CZSearchService;
+import ustin.cz.excel.ColumnSelectionDto;
+import ustin.cz.service.ApplicationService;
 
 import java.util.UUID;
 
@@ -20,23 +21,24 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class CZController {
 
-    private final CZSearchService CZSearchService;
+    private final ApplicationService ApplicationService;
 
     @PostMapping
     Response process(@RequestPart @Valid @NotNull MultipartFile file,
                      @Valid @NotNull ReportType reportType,
+                     @RequestPart(required = false) ColumnSelectionDto columnSelection,
                      HttpServletRequest httpServletRequest) {
-        return CZSearchService.process(file, reportType, httpServletRequest.getSession().getId());
+        return ApplicationService.process(file, reportType, columnSelection, httpServletRequest.getSession().getId());
     }
 
     @GetMapping("/{id}")
     Response check(@PathVariable UUID id) {
-        return CZSearchService.check(id);
+        return ApplicationService.check(id);
     }
 
     @GetMapping(path = "/download/{id}")
     ResponseEntity<Resource> downloadFile(@PathVariable UUID id) {
-        var resource = CZSearchService.download(id);
+        var resource = ApplicationService.download(id);
         var filename = resource.getFilename();
 
         return ResponseEntity.ok()

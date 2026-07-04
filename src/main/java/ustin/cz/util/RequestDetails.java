@@ -8,6 +8,7 @@ import org.springframework.web.multipart.MultipartFile;
 import ustin.cz.component.ReportType;
 import ustin.cz.component.RequestStatus;
 
+import java.util.Set;
 import java.util.UUID;
 
 @Getter
@@ -23,4 +24,5 @@ public class RequestDetails {
     private RequestStatus status;
     private ReportType reportType;
     private String contentType;
+    private Set<String> selectedColumns;
 }

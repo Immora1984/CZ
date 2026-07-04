@@ -28,13 +28,17 @@ public class CisSearchReportHandlerImpl implements ReportHandler {
 
         event.getTaskMap().get(event.getId()).setStatus(RequestStatus.PROCESS);
 
-        var workbook = fileHandlerService.downloadAndConvert(event.getTaskMap().get(event.getId()).getFile());
+        var workbook = fileHandlerService.downloadAndConvert(event.getTaskMap().get(event.getId()));
         var jsonResult = fileHandlerService.processCisesInfo(workbook);
-        var resource = fileHandlerService.createResourceFromResponse(jsonResult);
 
-        event.getTaskMap().get(event.getId()).setResource(resource);
-        event.getTaskMap().get(event.getId()).setStatus(RequestStatus.SUCCESS);
+        var details = event.getTaskMap().get(event.getId());
+        var selectedColumns = details.getSelectedColumns();
 
-        log.info("Обработка CIS_INFO отчета завершена");
+        var resource = fileHandlerService.createResourceFromResponse(jsonResult, selectedColumns);
+
+        details.setResource(resource);
+        details.setStatus(RequestStatus.SUCCESS);
+
+        log.info("Обработка CIS_INFO отчета завершена. Выведено {} колонок", selectedColumns.size());
     }
 }

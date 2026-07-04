@@ -11,20 +11,20 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 import tools.jackson.core.JsonParser;
 import tools.jackson.core.JsonToken;
 import tools.jackson.databind.ObjectMapper;
+import ustin.cz.excel.ColumnNames;
 import ustin.cz.service.ExternalApiService;
 import ustin.cz.service.FileHandlerService;
+import ustin.cz.util.RequestDetails;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -38,10 +38,59 @@ public class FileHandlerServiceImpl implements FileHandlerService {
     private final ExternalApiService externalApiService;
     private final ObjectMapper objectMapper;
 
+    private static final Map<String, ColumnExtractor> COLUMN_EXTRACTORS = new LinkedHashMap<>();
+
+    static {
+        COLUMN_EXTRACTORS.put(ColumnNames.CIS, (data, cert) -> data.cis != null ? data.cis : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.GTIN, (data, cert) -> data.gtin != null ? data.gtin : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.PRODUCT_NAME, (data, cert) -> data.productName != null ? data.productName : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.PRODUCT_GROUP, (data, cert) -> data.productGroup != null ? data.productGroup : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.PRODUCT_GROUP_ID, (data, cert) -> data.productGroupId != null ? data.productGroupId : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.BRAND, (data, cert) -> data.brand != null ? data.brand : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.TN_VED_EAES, (data, cert) -> data.tnVedEaes != null ? data.tnVedEaes : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.TN_VED_EAES_GROUP, (data, cert) -> data.tnVedEaesGroup != null ? data.tnVedEaesGroup : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.MANUFACTURER_NAME, (data, cert) -> data.manufacturerName != null ? data.manufacturerName : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.MANUFACTURER_INN, (data, cert) -> data.manufacturerInn != null ? data.manufacturerInn : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.PRODUCER_NAME, (data, cert) -> data.producerName != null ? data.producerName : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.PRODUCER_INN, (data, cert) -> data.producerInn != null ? data.producerInn : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.OWNER_NAME, (data, cert) -> data.ownerName != null ? data.ownerName : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.OWNER_INN, (data, cert) -> data.ownerInn != null ? data.ownerInn : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.STATUS, (data, cert) -> data.status != null ? data.status : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.STATUS_EX, (data, cert) -> data.statusEx != null ? data.statusEx : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.WITHDRAW_REASON, (data, cert) -> data.withdrawReason != null ? data.withdrawReason : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.MARK_WITHDRAW, (data, cert) -> data.markWithdraw != null ? data.markWithdraw : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.IS_TRACKING, (data, cert) -> data.isTracking != null ? data.isTracking : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.IS_MULTIPLE_SALES, (data, cert) -> data.isMultipleSales != null ? data.isMultipleSales : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.CIS_TRACKING_TYPE, (data, cert) -> data.cisTrackingType != null ? data.cisTrackingType : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.PACKAGE_TYPE, (data, cert) -> data.packageType != null ? data.packageType : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.GENERAL_PACKAGE_TYPE, (data, cert) -> data.generalPackageType != null ? data.generalPackageType : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.EMISSION_TYPE, (data, cert) -> data.emissionType != null ? data.emissionType : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.EMISSION_DATE, (data, cert) -> data.emissionDate != null ? data.emissionDate : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.APPLICATION_DATE, (data, cert) -> data.applicationDate != null ? data.applicationDate : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.INTRODUCED_DATE, (data, cert) -> data.introducedDate != null ? data.introducedDate : "");
+        COLUMN_EXTRACTORS.put(ColumnNames.PRODUCED_DATE, (data, cert) -> data.producedDate != null ? data.producedDate : "");
+
+        // Поля сертификатов
+        COLUMN_EXTRACTORS.put(ColumnNames.CERTIFICATE_TYPE, (data, cert) -> cert != null ? cert.type : "Нет данных");
+        COLUMN_EXTRACTORS.put(ColumnNames.CERTIFICATE_NUMBER, (data, cert) -> cert != null ? cert.number : "Нет данных");
+        COLUMN_EXTRACTORS.put(ColumnNames.CERTIFICATE_DATE, (data, cert) -> cert != null ? cert.date : "Нет данных");
+        COLUMN_EXTRACTORS.put(ColumnNames.CERTIFICATE_STATUS_GROUP, (data, cert) -> cert != null ? cert.statusGroup : "Нет данных");
+        COLUMN_EXTRACTORS.put(ColumnNames.CERTIFICATE_INDEX, (data, cert) -> cert != null ? cert.indx : "Нет данных");
+    }
+
     @Override
-    public Workbook downloadAndConvert(MultipartFile file) {
+    public Workbook downloadAndConvert(RequestDetails requestDetails) {
+        if (requestDetails == null) {
+            throw new RuntimeException("Задача с ID " + requestDetails.getId() + " не найдена");
+        }
+
+        var file = requestDetails.getFile();
+        if (file == null) {
+            throw new RuntimeException("Файл отсутствует для задачи " + requestDetails.getId());
+        }
+
         try {
-            var bytes = file.getBytes();
+            byte[] bytes = file.getBytes();
 
             if (isXlsx(bytes)) {
                 return new XSSFWorkbook(new ByteArrayInputStream(bytes));
@@ -51,6 +100,7 @@ public class FileHandlerServiceImpl implements FileHandlerService {
                 try {
                     return new XSSFWorkbook(new ByteArrayInputStream(bytes));
                 } catch (Exception e) {
+                    log.warn("Не удалось открыть как XSSF, пробуем HSSF: {}", e.getMessage());
                     return new HSSFWorkbook(new POIFSFileSystem(new ByteArrayInputStream(bytes)));
                 }
             }
@@ -105,12 +155,24 @@ public class FileHandlerServiceImpl implements FileHandlerService {
     }
 
     @Override
-    public Resource createResourceFromResponse(String jsonResponse) {
+    public Resource createResourceFromResponse(String jsonResponse, Set<String> selectedColumns) {
+        // Если не указаны колонки - используем все
+        if (selectedColumns == null || selectedColumns.isEmpty()) {
+            selectedColumns = ColumnNames.getAllColumnNames();
+        }
+
+        // Фильтруем только существующие колонки
+        Set<String> finalSelectedColumns = selectedColumns.stream()
+                .filter(COLUMN_EXTRACTORS::containsKey)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
         try (var workbook = new SXSSFWorkbook(100);
              var outputStream = new ByteArrayOutputStream()) {
 
             var sheet = workbook.createSheet("CIS Info");
-            createHeaders(sheet);
+
+            // Создаем заголовки только для выбранных колонок
+            createHeaders(sheet, finalSelectedColumns);
 
             int rowNum = 1;
 
@@ -122,7 +184,7 @@ public class FileHandlerServiceImpl implements FileHandlerService {
                 List<Object[]> rowBuffer = new ArrayList<>(1000);
 
                 while (parser.nextToken() != JsonToken.END_ARRAY) {
-                    var rowData = parseCisInfo(parser);
+                    var rowData = parseCisInfo(parser, finalSelectedColumns);
                     if (rowData != null && !rowData.isEmpty()) {
                         rowBuffer.addAll(rowData);
 
@@ -139,7 +201,8 @@ public class FileHandlerServiceImpl implements FileHandlerService {
                 }
             }
 
-            setColumnWidths(sheet);
+            // Устанавливаем ширины только для выбранных колонок
+            setColumnWidths(sheet, finalSelectedColumns);
 
             workbook.write(outputStream);
             workbook.dispose();
@@ -159,7 +222,7 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         }
     }
 
-    private List<Object[]> parseCisInfo(JsonParser parser) throws IOException {
+    private List<Object[]> parseCisInfo(JsonParser parser, Set<String> selectedColumns) throws IOException {
         List<Object[]> certDataList = new ArrayList<>();
 
         if (parser.currentToken() != JsonToken.START_OBJECT) return certDataList;
@@ -173,7 +236,7 @@ public class FileHandlerServiceImpl implements FileHandlerService {
 
             if ("cisInfo".equals(fieldName)) {
                 if (parser.currentToken() == JsonToken.START_OBJECT) {
-                    return parseCisInfoObject(parser);
+                    return parseCisInfoObject(parser, selectedColumns);
                 } else {
                     parser.skipChildren();
                 }
@@ -183,7 +246,7 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         return certDataList;
     }
 
-    private List<Object[]> parseCisInfoObject(JsonParser parser) throws IOException {
+    private List<Object[]> parseCisInfoObject(JsonParser parser, Set<String> selectedColumns) throws IOException {
         CisInfoData data = new CisInfoData();
         List<Object[]> certDataList = new ArrayList<>();
 
@@ -237,11 +300,11 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         // Если есть сертификаты - создаем строку для каждого
         if (!data.certDocs.isEmpty()) {
             for (CertDocData cert : data.certDocs) {
-                certDataList.add(data.toRowArray(cert));
+                certDataList.add(data.toRowArray(cert, selectedColumns));
             }
         } else if (data.cis != null && !data.cis.isEmpty()) {
             // Если нет сертификатов - создаем строку с "Нет данных"
-            certDataList.add(data.toRowArray(null));
+            certDataList.add(data.toRowArray(null, selectedColumns));
         }
 
         return certDataList;
@@ -313,42 +376,17 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         String producedDate;
         List<CertDocData> certDocs = new ArrayList<>();
 
-        Object[] toRowArray(CertDocData cert) {
-            return new Object[]{
-                    cis != null ? cis : "",
-                    gtin != null ? gtin : "",
-                    productName != null ? productName : "",
-                    productGroup != null ? productGroup : "",
-                    productGroupId != null ? productGroupId : "",
-                    brand != null ? brand : "",
-                    tnVedEaes != null ? tnVedEaes : "",
-                    tnVedEaesGroup != null ? tnVedEaesGroup : "",
-                    manufacturerName != null ? manufacturerName : "",
-                    manufacturerInn != null ? manufacturerInn : "",
-                    producerName != null ? producerName : "",
-                    producerInn != null ? producerInn : "",
-                    ownerName != null ? ownerName : "",
-                    ownerInn != null ? ownerInn : "",
-                    status != null ? status : "",
-                    statusEx != null ? statusEx : "",
-                    withdrawReason != null ? withdrawReason : "",
-                    markWithdraw != null ? markWithdraw : "",
-                    isTracking != null ? isTracking : "",
-                    isMultipleSales != null ? isMultipleSales : "",
-                    cisTrackingType != null ? cisTrackingType : "",
-                    packageType != null ? packageType : "",
-                    generalPackageType != null ? generalPackageType : "",
-                    emissionType != null ? emissionType : "",
-                    emissionDate != null ? emissionDate : "",
-                    applicationDate != null ? applicationDate : "",
-                    introducedDate != null ? introducedDate : "",
-                    producedDate != null ? producedDate : "",
-                    cert != null ? cert.type : "Нет данных",
-                    cert != null ? cert.number : "Нет данных",
-                    cert != null ? cert.date : "Нет данных",
-                    cert != null ? cert.statusGroup : "Нет данных",
-                    cert != null ? cert.indx : "Нет данных"
-            };
+        Object[] toRowArray(CertDocData cert, Set<String> selectedColumns) {
+            List<Object> row = new ArrayList<>();
+
+            for (String columnName : selectedColumns) {
+                ColumnExtractor extractor = COLUMN_EXTRACTORS.get(columnName);
+                if (extractor != null) {
+                    row.add(extractor.extract(this, cert));
+                }
+            }
+
+            return row.toArray();
         }
     }
 
@@ -358,6 +396,11 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         String date;
         String statusGroup;
         String indx;
+    }
+
+    @FunctionalInterface
+    private interface ColumnExtractor {
+        String extract(CisInfoData data, CertDocData cert);
     }
 
     private int flushBuffer(List<Object[]> buffer, Sheet sheet, int startRow) {
@@ -376,41 +419,44 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         return startRow;
     }
 
-    private void createHeaders(Sheet sheet) {
+    private void createHeaders(Sheet sheet, Set<String> selectedColumns) {
         var headerRow = sheet.createRow(0);
-        String[] headers = {
-                "CIS", "GTIN", "Product Name", "Product Group", "Product Group ID",
-                "Brand", "TN VED EAES", "TN VED EAES Group", "Manufacturer Name",
-                "Manufacturer INN", "Producer Name", "Producer INN", "Owner Name",
-                "Owner INN", "Status", "Status Ex", "Withdraw Reason", "Mark Withdraw",
-                "Is Tracking", "Is Multiple Sales", "CIS Tracking Type", "Package Type",
-                "General Package Type", "Emission Type", "Emission Date",
-                "Application Date", "Introduced Date", "Produced Date",
-                "Certificate Type", "Certificate Number", "Certificate Date",
-                "Certificate Status Group", "Certificate Index"
-        };
-
         var headerStyle = getHeaderStyle(sheet.getWorkbook());
 
-        for (int i = 0; i < headers.length; i++) {
-            var cell = headerRow.createCell(i);
-            cell.setCellValue(headers[i]);
+        int colIndex = 0;
+        for (String columnName : selectedColumns) {
+            var cell = headerRow.createCell(colIndex++);
+            cell.setCellValue(columnName);
             cell.setCellStyle(headerStyle);
         }
     }
 
-    private void setColumnWidths(Sheet sheet) {
-        int[] widths = {
+    private void setColumnWidths(Sheet sheet, Set<String> selectedColumns) {
+        // Базовая ширина для колонок
+        int[] defaultWidths = {
                 25, 15, 40, 15, 15, 15, 15, 15, 30, 18, 30, 18, 30, 18,
                 15, 15, 18, 15, 15, 18, 18, 15, 20, 15, 20, 20, 20, 20,
                 20, 25, 15, 20, 15
         };
-        for (int i = 0; i < widths.length; i++) {
-            int width = widths[i] * 256;
-            if (width < 3000) {
-                width = 3000;
+
+        // Маппинг названий колонок к ширине
+        Map<String, Integer> widthMap = new LinkedHashMap<>();
+        String[] allColumns = ColumnNames.getAllColumnNames().toArray(new String[0]);
+        for (int i = 0; i < allColumns.length && i < defaultWidths.length; i++) {
+            widthMap.put(allColumns[i], defaultWidths[i]);
+        }
+
+        int colIndex = 0;
+        for (String columnName : selectedColumns) {
+            Integer width = widthMap.get(columnName);
+            if (width == null) {
+                width = 20; // значение по умолчанию
             }
-            sheet.setColumnWidth(i, width);
+            int widthInChars = width * 256;
+            if (widthInChars < 3000) {
+                widthInChars = 3000;
+            }
+            sheet.setColumnWidth(colIndex++, widthInChars);
         }
     }
 
@@ -441,7 +487,6 @@ public class FileHandlerServiceImpl implements FileHandlerService {
     private String generateFileName() {
         return "cis_info_" + LocalDateTime.now().format(DATE_FORMATTER) + ".xlsx";
     }
-
 
     public String convertToJsonArray(List<String> values) {
         return values.stream()

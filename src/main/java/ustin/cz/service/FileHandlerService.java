@@ -2,13 +2,16 @@ package ustin.cz.service;
 
 import org.apache.poi.ss.usermodel.Workbook;
 import org.springframework.core.io.Resource;
-import org.springframework.web.multipart.MultipartFile;
+import ustin.cz.util.RequestDetails;
+
+import java.util.Set;
+
 
 public interface FileHandlerService {
 
-    Workbook downloadAndConvert(MultipartFile file);
+    Workbook downloadAndConvert(RequestDetails requestDetails);
 
     String processCisesInfo(Workbook workbook);
 
-    Resource createResourceFromResponse(String jsonResponse);
+    Resource createResourceFromResponse(String jsonResponse, Set<String> selectedColumns);
 }

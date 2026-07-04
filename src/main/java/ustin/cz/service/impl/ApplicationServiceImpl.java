@@ -9,7 +9,9 @@ import org.springframework.web.multipart.MultipartFile;
 import ustin.cz.component.RequestStatus;
 import ustin.cz.component.Response;
 import ustin.cz.component.ReportType;
-import ustin.cz.service.CZSearchService;
+import ustin.cz.excel.ColumnNames;
+import ustin.cz.excel.ColumnSelectionDto;
+import ustin.cz.service.ApplicationService;
 import ustin.cz.service.event.Event;
 import ustin.cz.util.Mapper;
 import ustin.cz.util.RequestDetails;
@@ -22,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class CZSearchServiceImpl implements CZSearchService {
+public class ApplicationServiceImpl implements ApplicationService {
 
     private final ApplicationEventPublisher eventPublisher;
 
@@ -32,7 +34,7 @@ public class CZSearchServiceImpl implements CZSearchService {
     private final Map<UUID, RequestDetails> taskMap = new ConcurrentHashMap<>();
 
     @Override
-    public Response process(MultipartFile file, ReportType reportType, String sessionId) {
+    public Response process(MultipartFile file, ReportType reportType, ColumnSelectionDto columnSelection, String sessionId) {
 
         if (!userTaskLimiter.canAddTask(sessionId)) {
             throw new RuntimeException(
@@ -52,6 +54,14 @@ public class CZSearchServiceImpl implements CZSearchService {
         details.setContentType(file.getContentType());
         details.setFileName(file.getOriginalFilename());
 
+        // Устанавливаем выбранные колонки (по умолчанию все)
+        if (columnSelection != null && columnSelection.getSelectedColumns() != null
+                && !columnSelection.getSelectedColumns().isEmpty()) {
+            details.setSelectedColumns(columnSelection.getSelectedColumns());
+        } else {
+            details.setSelectedColumns(ColumnNames.getAllColumnNames());
+        }
+
         try {
             details.setFileBytes(file.getBytes());
         } catch (IOException e) {
@@ -63,6 +73,7 @@ public class CZSearchServiceImpl implements CZSearchService {
         userTaskLimiter.addUserTask(sessionId);
 
         log.info("Задача {} создана для сессии {}", taskId, sessionId);
+        log.info("Выбрано {} колонок для отображения", details.getSelectedColumns().size());
 
         var event = new Event(this, details.getId(), details.getReportType(), taskMap);
         eventPublisher.publishEvent(event);
