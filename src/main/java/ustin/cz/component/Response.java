@@ -12,5 +12,6 @@ public class Response {
     private UUID id;
     private RequestStatus status;
     private ReportType reportType;
+    private String sessionId;
 
 }

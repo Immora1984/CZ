@@ -4,17 +4,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.io.Resource;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-import ustin.cz.component.RequestStatus;
-import ustin.cz.component.Response;
-import ustin.cz.component.ReportType;
-import ustin.cz.excel.ColumnNames;
-import ustin.cz.excel.ColumnSelectionDto;
+import ustin.cz.component.*;
+import ustin.cz.exception.FileProcessException;
+import ustin.cz.exception.UserTaskLimiterException;
 import ustin.cz.service.ApplicationService;
 import ustin.cz.service.event.Event;
-import ustin.cz.util.Mapper;
-import ustin.cz.util.RequestDetails;
 
 import java.io.IOException;
 import java.util.Map;
@@ -27,20 +24,17 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ApplicationServiceImpl implements ApplicationService {
 
     private final ApplicationEventPublisher eventPublisher;
-
     private final UserTaskLimiter userTaskLimiter;
-    private final Mapper mapper;
+    private final SimpMessagingTemplate messagingTemplate;
 
     private final Map<UUID, RequestDetails> taskMap = new ConcurrentHashMap<>();
+    private final Map<String, ProgressInfo> progressMap = new ConcurrentHashMap<>();
 
     @Override
-    public Response process(MultipartFile file, ReportType reportType, ColumnSelectionDto columnSelection, String sessionId) {
+    public Response process(MultipartFile file, ReportType reportType, ColumnSelection columnSelection, String sessionId) {
 
         if (!userTaskLimiter.canAddTask(sessionId)) {
-            throw new RuntimeException(
-                    String.format("У вас уже %d активных задач (макс: %d)",
-                            userTaskLimiter.getActiveTaskCount(sessionId), userTaskLimiter.getMaxTasksPerUser())
-            );
+            throw new UserTaskLimiterException.MaxLimit();
         }
 
         var taskId = UUID.randomUUID();
@@ -54,7 +48,6 @@ public class ApplicationServiceImpl implements ApplicationService {
         details.setContentType(file.getContentType());
         details.setFileName(file.getOriginalFilename());
 
-        // Устанавливаем выбранные колонки (по умолчанию все)
         if (columnSelection != null && columnSelection.getSelectedColumns() != null
                 && !columnSelection.getSelectedColumns().isEmpty()) {
             details.setSelectedColumns(columnSelection.getSelectedColumns());
@@ -66,7 +59,7 @@ public class ApplicationServiceImpl implements ApplicationService {
             details.setFileBytes(file.getBytes());
         } catch (IOException e) {
             log.error("Ошибка сохранения файла", e);
-            throw new RuntimeException("Не удалось сохранить файл", e);
+            throw new FileProcessException.ErrorSave();
         }
 
         taskMap.put(taskId, details);
@@ -82,6 +75,7 @@ public class ApplicationServiceImpl implements ApplicationService {
 
         var response = new Response();
         response.setId(taskId);
+        response.setSessionId(sessionId);
         response.setReportType(reportType);
         response.setStatus(RequestStatus.CREATED);
 
@@ -89,25 +83,53 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     @Override
-    public Response check(UUID taskId) {
-        var details = taskMap.get(taskId);
-        if (details == null) {
-            var response = new Response();
-            response.setId(taskId);
-            response.setStatus(RequestStatus.ERROR);
-            return response;
-        }
-        return mapper.toResponse(details);
-    }
-
-    @Override
     public Resource download(UUID taskId) {
         var details = taskMap.get(taskId);
 
-        if (details == null) throw new RuntimeException("Задача не найдена");
-        if (details.getResource() == null) throw new RuntimeException("Результат не найден");
-        if (details.getStatus() != RequestStatus.SUCCESS) throw new RuntimeException("Задача еще не завершена или завершилась с ошибкой");
+        if (details == null) throw new UserTaskLimiterException.NotFound();
+        if (details.getResource() == null) throw new UserTaskLimiterException.ResourceNotFound();
+        if (details.getStatus() != RequestStatus.SUCCESS) throw new UserTaskLimiterException.NotValidStatus();
 
         return details.getResource();
+    }
+
+    @Override
+    public ProgressInfo getProgress(String sessionId) {
+        return progressMap.get(sessionId);
+    }
+
+    /**
+     * Обновление прогресса и отправка клиенту
+     */
+    @Override
+    public void updateProgress(String sessionId, ProgressInfo progress) {
+        log.info("📊=== ОБНОВЛЕНИЕ ПРОГРЕССА ===");
+        log.info("SessionId: {}", sessionId);
+        log.info("Progress: {}%", progress.getProgress());
+        log.info("Message: {}", progress.getMessage());
+        log.info("Status: {}", progress.getStatus());
+
+        progressMap.put(sessionId, progress);
+
+        try {
+            // Попробуем отправить двумя способами для теста
+            // Способ 1: через /user
+            messagingTemplate.convertAndSendToUser(
+                    sessionId,
+                    "/queue/progress",
+                    progress
+            );
+            log.info("✅ Сообщение отправлено в /queue/progress для пользователя {}", sessionId);
+
+            // Способ 2: напрямую (для теста)
+            messagingTemplate.convertAndSend(
+                    "/topic/progress-" + sessionId,
+                    progress
+            );
+            log.info("✅ Сообщение отправлено в /topic/progress-{}", sessionId);
+
+        } catch (Exception e) {
+            log.error("❌ Ошибка при отправке: ", e);
+        }
     }
 }

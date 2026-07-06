@@ -1,12 +1,10 @@
-package ustin.cz.util;
+package ustin.cz.component;
 
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import org.springframework.core.io.Resource;
 import org.springframework.web.multipart.MultipartFile;
-import ustin.cz.component.ReportType;
-import ustin.cz.component.RequestStatus;
 
 import java.util.Set;
 import java.util.UUID;

@@ -2,6 +2,7 @@ package ustin.cz.util;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import ustin.cz.component.RequestDetails;
 import ustin.cz.component.Response;
 
 @Slf4j

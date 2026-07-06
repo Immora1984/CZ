@@ -1,11 +1,12 @@
-package ustin.cz.excel;
+package ustin.cz.component;
 
 import lombok.Data;
 
 import java.util.Set;
 
 @Data
-public class ColumnSelectionDto {
+public class ColumnSelection {
+
     private Set<String> selectedColumns;
 
     public Set<String> getSelectedColumns() {

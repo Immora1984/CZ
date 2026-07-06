@@ -1,53 +1,99 @@
 package ustin.cz.rest;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.handler.annotation.MessageMapping;
+import org.springframework.messaging.handler.annotation.Payload;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import ustin.cz.component.Response;
-import ustin.cz.component.ReportType;
-import ustin.cz.excel.ColumnSelectionDto;
+import ustin.cz.component.*;
 import ustin.cz.service.ApplicationService;
 
+import java.util.Map;
 import java.util.UUID;
 
-@RestController
+@Slf4j
+@Controller
 @RequiredArgsConstructor
 public class CZController {
 
-    private final ApplicationService ApplicationService;
+    private final SimpMessagingTemplate simpMessagingTemplate;
+    private final ApplicationService applicationService;
 
     @PostMapping
-    Response process(@RequestPart @Valid @NotNull MultipartFile file,
-                     @Valid @NotNull ReportType reportType,
-                     @RequestPart(required = false) ColumnSelectionDto columnSelection,
-                     HttpServletRequest httpServletRequest) {
-        return ApplicationService.process(file, reportType, columnSelection, httpServletRequest.getSession().getId());
+    public ResponseEntity<Response> processFile(
+            @RequestParam MultipartFile file,
+            @RequestParam ReportType reportType,
+            @RequestParam(required = false) ColumnSelection columnSelection,
+            @RequestHeader(value = "X-Session-ID", required = false) String sessionIdHeader) {
+
+        // Используем sessionId из заголовка, если он есть
+        String sessionId;
+        if (sessionIdHeader != null && !sessionIdHeader.isEmpty()) {
+            sessionId = sessionIdHeader;
+            log.info("📌 SessionId из заголовка: {}", sessionId);
+        } else {
+            sessionId = UUID.randomUUID().toString();
+            log.info("📌 Сгенерирован новый SessionId: {}", sessionId);
+        }
+
+        log.info("📤 Файл: {}, размер: {} байт", file.getOriginalFilename(), file.getSize());
+
+        Response response = applicationService.process(
+                file,
+                reportType,
+                columnSelection,
+                sessionId
+        );
+
+        // ✅ ВАЖНО: Возвращаем sessionId в ответе
+        response.setSessionId(sessionId);
+
+        return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/{id}")
-    Response check(@PathVariable UUID id) {
-        return ApplicationService.check(id);
+    @MessageMapping("/progress")
+    public void getCurrentProgress(@Payload Map<String, String> payload) {
+        System.out.println(payload.size());
+        var sessionId = payload != null && payload.containsKey("sessionId")
+                ? payload.get("sessionId")
+                : UUID.randomUUID().toString();
+
+        log.info("📌 Запрос текущего прогресса для сессии: {}", sessionId);
+
+        var progress = applicationService.getProgress(sessionId);
+
+        if (progress != null) {
+            log.info("📊 Найден прогресс: {}% - {}", progress.getProgress(), progress.getMessage());
+            simpMessagingTemplate.convertAndSendToUser(
+                    sessionId,
+                    "/queue/progress",
+                    progress
+            );
+        } else {
+            log.info("⚠️ Прогресс НЕ найден для сессии: {}", sessionId);
+            simpMessagingTemplate.convertAndSendToUser(
+                    sessionId,
+                    "/queue/progress",
+                    Map.of(
+                            "status", "NO_ACTIVE_PROCESS",
+                            "message", "Нет активного процесса обработки"
+                    )
+            );
+        }
     }
 
-    @GetMapping(path = "/download/{id}")
-    ResponseEntity<Resource> downloadFile(@PathVariable UUID id) {
-        var resource = ApplicationService.download(id);
-        var filename = resource.getFilename();
-
+    @GetMapping("/download/{id}")
+    ResponseEntity<Resource> getResult(@PathVariable UUID id) {
+        log.info("📥 Запрос на скачивание: {}", id);
         return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate")
-                .header(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, HttpHeaders.CONTENT_DISPOSITION)
-                .header(HttpHeaders.PRAGMA, "no-cache")
-                .header(HttpHeaders.EXPIRES, "0")
-                .body(resource);
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"result.xlsx\"")
+                .body(applicationService.download(id));
     }
 }

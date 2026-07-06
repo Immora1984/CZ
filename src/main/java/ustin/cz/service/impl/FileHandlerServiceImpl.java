@@ -14,10 +14,13 @@ import org.springframework.stereotype.Service;
 import tools.jackson.core.JsonParser;
 import tools.jackson.core.JsonToken;
 import tools.jackson.databind.ObjectMapper;
-import ustin.cz.excel.ColumnNames;
+import ustin.cz.component.ColumnNames;
+import ustin.cz.component.ProgressInfo;
+import ustin.cz.component.RequestStatus;
+import ustin.cz.service.ApplicationService;
 import ustin.cz.service.ExternalApiService;
 import ustin.cz.service.FileHandlerService;
-import ustin.cz.util.RequestDetails;
+import ustin.cz.component.RequestDetails;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -81,22 +84,27 @@ public class FileHandlerServiceImpl implements FileHandlerService {
     @Override
     public Workbook downloadAndConvert(RequestDetails requestDetails) {
         if (requestDetails == null) {
-            throw new RuntimeException("Задача с ID " + requestDetails.getId() + " не найдена");
-        }
-
-        var file = requestDetails.getFile();
-        if (file == null) {
-            throw new RuntimeException("Файл отсутствует для задачи " + requestDetails.getId());
+            throw new RuntimeException("Задача не найдена");
         }
 
         try {
-            byte[] bytes = file.getBytes();
+            // Используем сохраненные байты вместо file.getBytes()
+            byte[] bytes = requestDetails.getFileBytes();
+
+            if (bytes == null || bytes.length == 0) {
+                throw new RuntimeException("Файл пуст или не сохранен");
+            }
+
+            log.info("Конвертация файла, размер: {} байт", bytes.length);
 
             if (isXlsx(bytes)) {
+                log.info("Определен формат XLSX");
                 return new XSSFWorkbook(new ByteArrayInputStream(bytes));
             } else if (isXls(bytes)) {
+                log.info("Определен формат XLS");
                 return new HSSFWorkbook(new POIFSFileSystem(new ByteArrayInputStream(bytes)));
             } else {
+                log.warn("Неизвестный формат, пробуем как XSSF...");
                 try {
                     return new XSSFWorkbook(new ByteArrayInputStream(bytes));
                 } catch (Exception e) {
@@ -104,52 +112,105 @@ public class FileHandlerServiceImpl implements FileHandlerService {
                     return new HSSFWorkbook(new POIFSFileSystem(new ByteArrayInputStream(bytes)));
                 }
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             log.error("Ошибка при конвертации файла: {}", e.getMessage(), e);
             throw new RuntimeException("Не удалось обработать Excel файл", e);
         }
     }
 
     @Override
-    public String processCisesInfo(Workbook workbook) {
-        try {
-            var values = readFirstColumn(workbook);
+    public String processCisesSearch(Workbook workbook, String sessionId, ApplicationService applicationService) {
+        log.info("🔍 Начало обработки CIS_SEARCH для сессии: {}", sessionId);
 
+        try {
+            // Инициализация прогресса
+            var progress = ProgressInfo.builder()
+                    .status(RequestStatus.PROCESS)
+                    .progress(0)
+                    .currentBatch(0)
+                    .totalBatches(0)
+                    .message("Чтение данных из файла...")
+                    .build();
+            applicationService.updateProgress(sessionId, progress);
+
+            // Читаем первый столбец
+            var values = readFirstColumn(workbook);
             log.info("Прочитано {} строк из файла", values.size());
 
             if (values.isEmpty()) {
                 throw new RuntimeException("Файл пуст или не содержит данных в первом столбце");
             }
 
+            // Разбиваем на батчи
             var batches = splitIntoBatches(values);
-            log.info("Разбито на {} пачек по 1000 строк", batches.size());
+            int totalBatches = batches.size();
+            log.info("Разбито на {} пачек", totalBatches);
 
-            return IntStream.range(0, batches.size())
-                    .mapToObj(i -> {
-                        try {
-                            var response = externalApiService.sendToCisesInfo(convertToJsonArray(batches.get(i)));
-                            var cleanResponse = cleanResponse(response);
+            // Обновляем прогресс
+            progress.setTotalBatches(totalBatches);
+            progress.setMessage("Начало обработки данных...");
+            applicationService.updateProgress(sessionId, progress);
 
-                            log.info("Пачка {}/{} обработана", i + 1, batches.size());
+            List<String> results = new ArrayList<>();
 
-                            try {
-                                Thread.sleep(500);
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                                throw new RuntimeException(e);
-                            }
-                            return cleanResponse;
+            // Обрабатываем каждый батч
+            for (int i = 0; i < totalBatches; i++) {
+                try {
+                    // Рассчитываем прогресс
+                    int progressPercent = (int) (((double) (i + 1) / totalBatches) * 100);
 
-                        } catch (Exception e) {
-                            log.error("Ошибка при обработке пачки {}", i + 1, e);
-                            return "";
-                        }
-                    })
-                    .filter(StringUtils::isNotBlank)
-                    .collect(Collectors.joining(",", "[", "]"));
+                    // Обновляем прогресс
+                    progress.setCurrentBatch(i + 1);
+                    progress.setProgress(progressPercent);
+                    progress.setMessage(String.format("🔍 Поиск CIS: батч %d из %d...", i + 1, totalBatches));
+                    applicationService.updateProgress(sessionId, progress);
+
+                    // Отправляем запрос
+                    var response = externalApiService.sendToCisesInfo(convertToJsonArray(batches.get(i)));
+                    var cleanResponse = cleanResponse(response);
+
+                    if (StringUtils.isNotBlank(cleanResponse)) {
+                        results.add(cleanResponse);
+                    }
+
+                    log.info("Батч {}/{} обработан", i + 1, totalBatches);
+
+                    // Задержка между запросами
+                    Thread.sleep(500);
+
+                } catch (Exception e) {
+                    log.error("Ошибка при обработке батча {}", i + 1, e);
+                    progress.setMessage(String.format("⚠️ Ошибка в батче %d: %s", i + 1, e.getMessage()));
+                    applicationService.updateProgress(sessionId, progress);
+                }
+            }
+
+            // Финальная обработка
+            progress.setProgress(98);
+            progress.setMessage("Формирование результата...");
+            applicationService.updateProgress(sessionId, progress);
+
+            // Собираем результат
+            var finalResult = results.stream().collect(Collectors.joining(",", "[", "]"));
+
+            // Готово!
+            progress.setStatus(RequestStatus.SUCCESS);
+            progress.setProgress(100);
+            progress.setMessage("✅ Обработка CIS_SEARCH завершена!");
+            applicationService.updateProgress(sessionId, progress);
+
+            log.info("Обработка CIS_SEARCH завершена. Получено {} результатов", results.size());
+            return finalResult;
 
         } catch (Exception e) {
-            log.error("Ошибка при обработке cises/info: {}", e.getMessage(), e);
+            log.error("Ошибка при обработке CIS_SEARCH: {}", e.getMessage(), e);
+
+            ProgressInfo progress = new ProgressInfo();
+            progress.setStatus(RequestStatus.ERROR);
+            progress.setErrorDetails(e.getMessage());
+            progress.setMessage("❌ Ошибка: " + e.getMessage());
+            applicationService.updateProgress(sessionId, progress);
+
             throw new RuntimeException("Ошибка обработки данных", e);
         }
     }
@@ -297,20 +358,18 @@ public class FileHandlerServiceImpl implements FileHandlerService {
             }
         }
 
-        // Если есть сертификаты - создаем строку для каждого
         if (!data.certDocs.isEmpty()) {
             for (CertDocData cert : data.certDocs) {
                 certDataList.add(data.toRowArray(cert, selectedColumns));
             }
         } else if (data.cis != null && !data.cis.isEmpty()) {
-            // Если нет сертификатов - создаем строку с "Нет данных"
             certDataList.add(data.toRowArray(null, selectedColumns));
         }
 
         return certDataList;
     }
 
-    private List<CertDocData> parseCertDocs(JsonParser parser) throws IOException {
+    private List<CertDocData> parseCertDocs(JsonParser parser) {
         List<CertDocData> result = new ArrayList<>();
 
         if (parser.currentToken() != JsonToken.START_ARRAY) return result;

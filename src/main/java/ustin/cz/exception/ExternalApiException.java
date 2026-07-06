@@ -1,16 +1,11 @@
 package ustin.cz.exception;
 
-import org.springframework.context.i18n.LocaleContextHolder;
-import org.springframework.context.MessageSource;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ProblemDetail;
 import org.springframework.web.ErrorResponseException;
 
 import java.time.Instant;
 
 public class ExternalApiException extends ErrorResponseException {
-
-    private static MessageSource messageSource;
 
     public ExternalApiException(HttpStatus status) {
         super(status);

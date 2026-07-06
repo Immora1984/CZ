@@ -4,7 +4,7 @@ import lombok.Getter;
 import lombok.ToString;
 import org.springframework.context.ApplicationEvent;
 import ustin.cz.component.ReportType;
-import ustin.cz.util.RequestDetails;
+import ustin.cz.component.RequestDetails;
 
 import java.util.Map;
 import java.util.UUID;

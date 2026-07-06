@@ -65,7 +65,7 @@ public class ExternalApiServiceImpl implements ExternalApiService {
             } else {
                 log.error("Ошибка получения токена: статус {}, тело ответа {}",
                         response.statusCode(), response.body());
-                throw new RuntimeException("Ошибка получения токена. Код: " + response.statusCode());
+                throw new ExternalApiException.BearerException();
             }
         } catch (IOException | InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -95,7 +95,7 @@ public class ExternalApiServiceImpl implements ExternalApiService {
         var currentToken = getCurrentBearerToken();
 
         if (currentToken == null || currentToken.isEmpty()) {
-            throw new RuntimeException("Bearer токен не получен");
+            throw new ExternalApiException.BearerException();
         }
 
         log.info("Отправка запроса к CisesInfo API");
@@ -128,7 +128,7 @@ public class ExternalApiServiceImpl implements ExternalApiService {
 
             if (statusCode >= 400) {
                 log.error("Ошибка API: {} - {}", statusCode, responseBody);
-                throw new RuntimeException("API вернул ошибку: " + statusCode + " - " + responseBody);
+                throw new ExternalApiException.UnavailableException();
             }
 
             return responseBody;
@@ -136,10 +136,10 @@ public class ExternalApiServiceImpl implements ExternalApiService {
         } catch (IOException | InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("Ошибка при отправке запроса к CisesInfo API", e);
-            throw new RuntimeException("Ошибка соединения с API", e);
+            throw new ExternalApiException.UnavailableException();
         } catch (Exception e) {
             log.error("Неожиданная ошибка", e);
-            throw new RuntimeException("Ошибка при выполнении запроса", e);
+            throw new ExternalApiException.UnavailableException();
         }
     }
 

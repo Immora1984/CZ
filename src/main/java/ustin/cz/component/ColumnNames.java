@@ -1,4 +1,4 @@
-package ustin.cz.excel;
+package ustin.cz.component;
 
 import java.util.Set;
 import java.util.LinkedHashSet;

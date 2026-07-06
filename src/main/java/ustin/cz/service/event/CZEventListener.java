@@ -18,6 +18,9 @@ public class CZEventListener {
     @EventListener
     public void handleEvent(Event event) {
         log.info("Событие получено: Task ID: {}", event.getId());
-        reportHandlerFactory.getHandler(event.getReportType()).handle(event);
+
+        var details = event.getTaskMap().get(event.getId());
+        if (details != null) reportHandlerFactory.getHandler(event.getReportType()).handle(event);
+
     }
 }
