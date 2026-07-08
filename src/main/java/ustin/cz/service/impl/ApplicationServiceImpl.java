@@ -1,5 +1,6 @@
 package ustin.cz.service.impl;
 
+import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -14,6 +15,7 @@ import ustin.cz.service.ApplicationService;
 import ustin.cz.service.event.Event;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,8 +26,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ApplicationServiceImpl implements ApplicationService {
 
     private final ApplicationEventPublisher eventPublisher;
-    private final UserTaskLimiter userTaskLimiter;
     private final SimpMessagingTemplate messagingTemplate;
+    private final UserTaskLimiter userTaskLimiter;
 
     private final Map<UUID, RequestDetails> taskMap = new ConcurrentHashMap<>();
     private final Map<String, ProgressInfo> progressMap = new ConcurrentHashMap<>();
@@ -33,14 +35,9 @@ public class ApplicationServiceImpl implements ApplicationService {
     @Override
     public Response process(MultipartFile file, ReportType reportType, ColumnSelection columnSelection, String sessionId) {
 
-        if (!userTaskLimiter.canAddTask(sessionId)) {
-            throw new UserTaskLimiterException.MaxLimit();
-        }
-
-        var taskId = UUID.randomUUID();
+        if (!userTaskLimiter.canAddTask(sessionId)) throw new UserTaskLimiterException.MaxLimit();
 
         var details = new RequestDetails();
-        details.setId(taskId);
         details.setFile(file);
         details.setSessionId(sessionId);
         details.setReportType(reportType);
@@ -62,24 +59,20 @@ public class ApplicationServiceImpl implements ApplicationService {
             throw new FileProcessException.ErrorSave();
         }
 
-        taskMap.put(taskId, details);
+        taskMap.put(details.getId(), details);
         userTaskLimiter.addUserTask(sessionId);
 
-        log.info("Задача {} создана для сессии {}", taskId, sessionId);
-        log.info("Выбрано {} колонок для отображения", details.getSelectedColumns().size());
-
-        var event = new Event(this, details.getId(), details.getReportType(), taskMap);
+        var event = new Event(this, details);
         eventPublisher.publishEvent(event);
 
-        log.info("Опубликовано событие: {}", event);
+        log.info("Опубликовано событие по запросу с ID: {}", details.getId());
 
-        var response = new Response();
-        response.setId(taskId);
-        response.setSessionId(sessionId);
-        response.setReportType(reportType);
-        response.setStatus(RequestStatus.CREATED);
-
-        return response;
+        return Response.builder()
+                .id(details.getId())
+                .sessionId(sessionId)
+                .reportType(reportType)
+                .status(RequestStatus.CREATED)
+                .build();
     }
 
     @Override
@@ -98,38 +91,20 @@ public class ApplicationServiceImpl implements ApplicationService {
         return progressMap.get(sessionId);
     }
 
-    /**
-     * Обновление прогресса и отправка клиенту
-     */
     @Override
     public void updateProgress(String sessionId, ProgressInfo progress) {
-        log.info("📊=== ОБНОВЛЕНИЕ ПРОГРЕССА ===");
-        log.info("SessionId: {}", sessionId);
-        log.info("Progress: {}%", progress.getProgress());
-        log.info("Message: {}", progress.getMessage());
-        log.info("Status: {}", progress.getStatus());
-
         progressMap.put(sessionId, progress);
 
         try {
-            // Попробуем отправить двумя способами для теста
-            // Способ 1: через /user
             messagingTemplate.convertAndSendToUser(
                     sessionId,
                     "/queue/progress",
                     progress
             );
-            log.info("✅ Сообщение отправлено в /queue/progress для пользователя {}", sessionId);
-
-            // Способ 2: напрямую (для теста)
-            messagingTemplate.convertAndSend(
-                    "/topic/progress-" + sessionId,
-                    progress
-            );
-            log.info("✅ Сообщение отправлено в /topic/progress-{}", sessionId);
+            log.info("Сообщение отправлено в /queue/progress для пользователя {}", sessionId);
 
         } catch (Exception e) {
-            log.error("❌ Ошибка при отправке: ", e);
+            log.error("Ошибка при отправке: ", e);
         }
     }
 }

@@ -1,4 +1,4 @@
-package ustin.cz.config;
+package ustin.cz.exception;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
@@ -20,10 +20,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-@Slf4j
 @RestControllerAdvice
 @RequiredArgsConstructor
 public class ExceptionHandlers extends ResponseEntityExceptionHandler {
+
     private final MessageSource messageSource;
 
     @Override

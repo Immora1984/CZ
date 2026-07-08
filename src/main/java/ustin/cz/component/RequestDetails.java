@@ -13,7 +13,7 @@ import java.util.UUID;
 @Setter
 @ToString(exclude = {"fileBytes", "file", "resource"})
 public class RequestDetails {
-    private UUID id;
+    private UUID id = UUID.randomUUID();
     private String fileName;
     private byte[] fileBytes;
     private MultipartFile file;

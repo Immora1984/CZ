@@ -16,7 +16,6 @@ public class ProgressInfo {
     private int progress;
     private int currentBatch;
     private int totalBatches;
-    private String message;
     private UUID fileId;
     private String errorDetails;
     private UUID taskId;

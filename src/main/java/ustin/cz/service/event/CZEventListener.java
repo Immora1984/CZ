@@ -17,10 +17,7 @@ public class CZEventListener {
     @Async
     @EventListener
     public void handleEvent(Event event) {
-        log.info("Событие получено: Task ID: {}", event.getId());
-
-        var details = event.getTaskMap().get(event.getId());
-        if (details != null) reportHandlerFactory.getHandler(event.getReportType()).handle(event);
-
+        log.info("Событие получено: Task ID: {}", event.getRequestDetails().getId());
+        reportHandlerFactory.getHandler(event.getRequestDetails().getReportType()).handle(event);
     }
 }

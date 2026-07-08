@@ -129,7 +129,6 @@ public class FileHandlerServiceImpl implements FileHandlerService {
                     .progress(0)
                     .currentBatch(0)
                     .totalBatches(0)
-                    .message("Чтение данных из файла...")
                     .build();
             applicationService.updateProgress(sessionId, progress);
 
@@ -148,7 +147,6 @@ public class FileHandlerServiceImpl implements FileHandlerService {
 
             // Обновляем прогресс
             progress.setTotalBatches(totalBatches);
-            progress.setMessage("Начало обработки данных...");
             applicationService.updateProgress(sessionId, progress);
 
             List<String> results = new ArrayList<>();
@@ -162,7 +160,6 @@ public class FileHandlerServiceImpl implements FileHandlerService {
                     // Обновляем прогресс
                     progress.setCurrentBatch(i + 1);
                     progress.setProgress(progressPercent);
-                    progress.setMessage(String.format("🔍 Поиск CIS: батч %d из %d...", i + 1, totalBatches));
                     applicationService.updateProgress(sessionId, progress);
 
                     // Отправляем запрос
@@ -180,23 +177,19 @@ public class FileHandlerServiceImpl implements FileHandlerService {
 
                 } catch (Exception e) {
                     log.error("Ошибка при обработке батча {}", i + 1, e);
-                    progress.setMessage(String.format("⚠️ Ошибка в батче %d: %s", i + 1, e.getMessage()));
                     applicationService.updateProgress(sessionId, progress);
                 }
             }
 
             // Финальная обработка
             progress.setProgress(98);
-            progress.setMessage("Формирование результата...");
             applicationService.updateProgress(sessionId, progress);
 
             // Собираем результат
             var finalResult = results.stream().collect(Collectors.joining(",", "[", "]"));
 
-            // Готово!
             progress.setStatus(RequestStatus.SUCCESS);
             progress.setProgress(100);
-            progress.setMessage("✅ Обработка CIS_SEARCH завершена!");
             applicationService.updateProgress(sessionId, progress);
 
             log.info("Обработка CIS_SEARCH завершена. Получено {} результатов", results.size());
@@ -208,7 +201,6 @@ public class FileHandlerServiceImpl implements FileHandlerService {
             ProgressInfo progress = new ProgressInfo();
             progress.setStatus(RequestStatus.ERROR);
             progress.setErrorDetails(e.getMessage());
-            progress.setMessage("❌ Ошибка: " + e.getMessage());
             applicationService.updateProgress(sessionId, progress);
 
             throw new RuntimeException("Ошибка обработки данных", e);

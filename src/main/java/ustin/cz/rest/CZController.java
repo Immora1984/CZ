@@ -31,17 +31,7 @@ public class CZController {
             @RequestParam MultipartFile file,
             @RequestParam ReportType reportType,
             @RequestParam(required = false) ColumnSelection columnSelection,
-            @RequestHeader(value = "X-Session-ID", required = false) String sessionIdHeader) {
-
-        // Используем sessionId из заголовка, если он есть
-        String sessionId;
-        if (sessionIdHeader != null && !sessionIdHeader.isEmpty()) {
-            sessionId = sessionIdHeader;
-            log.info("📌 SessionId из заголовка: {}", sessionId);
-        } else {
-            sessionId = UUID.randomUUID().toString();
-            log.info("📌 Сгенерирован новый SessionId: {}", sessionId);
-        }
+            @RequestHeader(value = "X-Session-ID") String sessionIdHeader) {
 
         log.info("📤 Файл: {}, размер: {} байт", file.getOriginalFilename(), file.getSize());
 
@@ -49,11 +39,8 @@ public class CZController {
                 file,
                 reportType,
                 columnSelection,
-                sessionId
+                sessionIdHeader
         );
-
-        // ✅ ВАЖНО: Возвращаем sessionId в ответе
-        response.setSessionId(sessionId);
 
         return ResponseEntity.ok(response);
     }

@@ -3,36 +3,25 @@ package ustin.cz.exception;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.ErrorResponseException;
 
-import java.time.Instant;
-
 public class ExternalApiException extends ErrorResponseException {
 
-    public ExternalApiException(HttpStatus status) {
-        super(status);
-        getBody().setProperty("timestamp", Instant.now());
-    }
+    public ExternalApiException(HttpStatus status) {super(status);}
 
     public static class ApiException extends ExternalApiException {
         public ApiException() {
             super(HttpStatus.SERVICE_UNAVAILABLE);
         }
-
-        public ApiException(Throwable cause) {
-            this();
-            initCause(cause);
-        }
     }
 
     public static class BearerException extends ExternalApiException {
-        public BearerException() {super(HttpStatus.UNAUTHORIZED);}
+        public BearerException() {super(HttpStatus.SERVICE_UNAVAILABLE);}
     }
 
     public static class UnavailableException extends ExternalApiException {
         public UnavailableException() {super(HttpStatus.SERVICE_UNAVAILABLE);}
+    }
 
-        public UnavailableException(Throwable cause) {
-            this();
-            initCause(cause);
-        }
+    public static class NotAuthenticated extends ExternalApiException {
+        public NotAuthenticated() {super(HttpStatus.BAD_REQUEST);}
     }
 }

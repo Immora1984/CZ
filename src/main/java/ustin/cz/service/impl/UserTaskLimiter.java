@@ -26,13 +26,4 @@ public class UserTaskLimiter {
         sessionTasks.computeIfAbsent(sessionId, k -> new AtomicInteger(0))
                 .incrementAndGet();
     }
-
-    public int getActiveTaskCount(String sessionId) {
-        var count = sessionTasks.get(sessionId);
-        return count != null ? count.get() : 0;
-    }
-
-    public int getMaxTasksPerUser() {
-        return MAX_TASKS_PER_USER;
-    }
 }

@@ -1,9 +1,8 @@
 package ustin.cz.service.impl;
 
-import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
@@ -17,33 +16,52 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.time.Duration;
-import java.time.Instant;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ExternalApiServiceImpl implements ExternalApiService {
 
-    @Getter
-    @Setter
-    private String bearer;
-    private Instant tokenExpiryTime;
+    @Value("${external-api.bearer-url}")
+    private String bearerUrl;
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
-
-    private static final Duration TOKEN_LIFETIME = Duration.ofHours(24);
+    private final AtomicReference<String> bearer = new AtomicReference<>();
 
     @Override
+    @Retryable(retryFor = {ExternalApiException.NotAuthenticated.class, ExternalApiException.UnavailableException.class})
+    public String sendToCisesInfo(String body) {
+        try {
+            var response = httpClient.send(createRequest(body), BodyHandlers.ofString());
+
+            if (response.statusCode() == 401) throw new ExternalApiException.NotAuthenticated();
+
+            return response.body();
+        } catch (IOException | InterruptedException e) {
+            log.error("Ошибка при отправке запроса к CisesInfo API", e);
+            throw new ExternalApiException.UnavailableException();
+        }
+    }
+
+    private HttpRequest createRequest(String body) {
+        return HttpRequest.newBuilder()
+                .uri(URI.create("https://markirovka.crpt.ru/api/v3/true-api/cises/info"))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + getBearer())
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .timeout(Duration.ofSeconds(60))
+                .build();
+    }
+
     @Retryable(
             retryFor = RuntimeException.class,
             backoff = @Backoff(delay = 1000, multiplier = 2)
     )
-    public String getTokenFromExternalApi() {
-        log.info("Запрос нового bearer токена из внешнего API");
-
+    private String getBearerToken() {
         var request = HttpRequest.newBuilder()
-                .uri(URI.create("https://markirovka.crpt.ru/oauth/token"))
+                .uri(URI.create(bearerUrl))
                 .POST(HttpRequest.BodyPublishers.ofString(
                         "grant_type=password&username=p.serebrennikov@call-service.ru&password=BvHx4a07*3c/"))
                 .header("Authorization", "Basic Y3JwdC1zZXJ2aWNlOnNlY3JldA==")
@@ -57,115 +75,30 @@ public class ExternalApiServiceImpl implements ExternalApiService {
 
             if (response.statusCode() == 200) {
                 var newBearer = extractAccessToken(response.body());
-                this.bearer = newBearer;
-                this.tokenExpiryTime = Instant.now().plus(TOKEN_LIFETIME);
-
-                log.info("Bearer токен успешно получен. Истекает: {}", tokenExpiryTime);
+                this.bearer.set(newBearer);
                 return newBearer;
             } else {
-                log.error("Ошибка получения токена: статус {}, тело ответа {}",
-                        response.statusCode(), response.body());
+                log.error("Ошибка получения токена: статус {}, тело ответа {}", response.statusCode(), response.body());
                 throw new ExternalApiException.BearerException();
             }
         } catch (IOException | InterruptedException e) {
-            Thread.currentThread().interrupt();
             log.error("Ошибка при запросе токена", e);
             throw new ExternalApiException.ApiException();
         }
     }
 
-    private boolean isTokenExpired() {
-        return bearer == null || tokenExpiryTime == null || Instant.now().isAfter(tokenExpiryTime);
-    }
-
-    private synchronized String refreshTokenIfNeeded() {
-        if (isTokenExpired()) {
-            log.info("Токен истек или отсутствует, обновляем...");
-            return getTokenFromExternalApi();
-        }
-        return bearer;
-    }
-
-    public String getCurrentBearerToken() {
-        return refreshTokenIfNeeded();
-    }
-
-    @Override
-    public String sendToCisesInfo(String body) {
-        var currentToken = getCurrentBearerToken();
-
-        if (currentToken == null || currentToken.isEmpty()) {
-            throw new ExternalApiException.BearerException();
-        }
-
-        log.info("Отправка запроса к CisesInfo API");
-        log.debug("Тело запроса: {}", body);
-
-        try {
-            var response = httpClient.send(doRequest(currentToken, body), BodyHandlers.ofString());
-
-            int statusCode = response.statusCode();
-            var responseBody = response.body();
-
-            log.info("Статус ответа: {}", statusCode);
-            log.debug("Тело ответа: {}", responseBody);
-
-            if (statusCode == 401) {
-                log.warn("Токен невалиден (401), обновляем и пробуем снова");
-
-                getTokenFromExternalApi();
-
-                var retryResponse = httpClient.send(doRequest(getCurrentBearerToken(), body), BodyHandlers.ofString());
-
-                if (retryResponse.statusCode() == 200) {
-                    log.info("Запрос успешно выполнен после обновления токена");
-                    return retryResponse.body();
-                } else {
-                    log.error("Ошибка API после обновления токена: {}", retryResponse.statusCode());
-                    throw new RuntimeException("Ошибка API: " + retryResponse.statusCode());
-                }
-            }
-
-            if (statusCode >= 400) {
-                log.error("Ошибка API: {} - {}", statusCode, responseBody);
-                throw new ExternalApiException.UnavailableException();
-            }
-
-            return responseBody;
-
-        } catch (IOException | InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("Ошибка при отправке запроса к CisesInfo API", e);
-            throw new ExternalApiException.UnavailableException();
-        } catch (Exception e) {
-            log.error("Неожиданная ошибка", e);
-            throw new ExternalApiException.UnavailableException();
-        }
-    }
-
-    private HttpRequest doRequest(String token, String body) {
-        return HttpRequest.newBuilder()
-                .uri(URI.create("https://markirovka.crpt.ru/api/v3/true-api/cises/info"))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + token)
-                .POST(HttpRequest.BodyPublishers.ofString(body))
-                .timeout(Duration.ofSeconds(60))
-                .build();
+    private String getBearer() {
+        if (bearer.get() == null) this.bearer.set(getBearerToken());
+        return this.bearer.get();
     }
 
     private String extractAccessToken(String responseBody) {
         try {
             var jsonNode = objectMapper.readTree(responseBody);
 
-            if (!jsonNode.has("access_token")) {
-                log.error("Ответ не содержит access_token: {}", responseBody);
-                throw new RuntimeException("Неверный формат ответа авторизации");
-            }
+            if (!jsonNode.has("access_token")) throw new ExternalApiException.BearerException();
 
-            var token = jsonNode.get("access_token").asString();
-            log.info("Токен извлечен успешно. Длина: {}", token.length());
-            return token;
-
+            return jsonNode.get("access_token").asString();
         } catch (Exception e) {
             log.error("Ошибка парсинга ответа авторизации: {}", responseBody, e);
             throw new RuntimeException("Ошибка парсинга ответа", e);
