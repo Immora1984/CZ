@@ -26,4 +26,13 @@ public class UserTaskLimiter {
         sessionTasks.computeIfAbsent(sessionId, k -> new AtomicInteger(0))
                 .incrementAndGet();
     }
+
+    public void removeUserTask(String sessionId) {
+        var count = sessionTasks.get(sessionId);
+        if (count != null) {
+            if (count.decrementAndGet() <= 0) {
+                sessionTasks.remove(sessionId);
+            }
+        }
+    }
 }

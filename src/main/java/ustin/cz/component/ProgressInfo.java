@@ -11,14 +11,10 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ProgressInfo {
+public class ProgressInfo implements Message {
     private RequestStatus status;
-    private int progress;
     private int currentBatch;
     private int totalBatches;
-    private UUID fileId;
     private String errorDetails;
     private UUID taskId;
-    private String startTime;
-    private String endTime;
 }

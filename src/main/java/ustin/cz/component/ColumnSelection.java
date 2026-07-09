@@ -1,18 +1,16 @@
 package ustin.cz.component;
 
 import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.util.Set;
 
 @Data
 public class ColumnSelection {
 
-    private Set<String> selectedColumns;
+    @Getter
+    @Setter
+    private Set<String> selectedColumns = ColumnNames.getAllColumnNames();
 
-    public Set<String> getSelectedColumns() {
-        if (selectedColumns == null || selectedColumns.isEmpty()) {
-            return ColumnNames.getAllColumnNames();
-        }
-        return selectedColumns;
-    }
 }

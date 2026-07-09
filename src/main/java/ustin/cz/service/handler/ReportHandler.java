@@ -6,6 +6,7 @@ import ustin.cz.service.event.Event;
 public interface ReportHandler {
 
     ReportType getType();
+
     void handle(Event event);
 
 }

@@ -5,13 +5,14 @@ import org.springframework.core.io.Resource;
 import ustin.cz.component.RequestDetails;
 
 import java.util.Set;
+import java.util.UUID;
 
 
 public interface FileHandlerService {
 
     Workbook downloadAndConvert(RequestDetails requestDetails);
 
-    String processCisesSearch(Workbook workbook, String sessionId, ApplicationService applicationService);
+    String workbookToJson(Workbook workbook, String sessionId, UUID taskId);
 
     Resource createResourceFromResponse(String jsonResponse, Set<String> selectedColumns);
 }

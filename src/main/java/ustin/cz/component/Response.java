@@ -9,7 +9,7 @@ import java.util.UUID;
 @Getter
 @Setter
 @Builder
-public class Response {
+public class Response implements Message {
 
     private UUID id;
     private RequestStatus status;

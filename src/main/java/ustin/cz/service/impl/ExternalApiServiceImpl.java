@@ -33,26 +33,26 @@ public class ExternalApiServiceImpl implements ExternalApiService {
     @Override
     @Retryable(retryFor = {ExternalApiException.NotAuthenticated.class, ExternalApiException.UnavailableException.class})
     public String sendToCisesInfo(String body) {
-        try {
-            var response = httpClient.send(createRequest(body), BodyHandlers.ofString());
-
-            if (response.statusCode() == 401) throw new ExternalApiException.NotAuthenticated();
-
-            return response.body();
-        } catch (IOException | InterruptedException e) {
-            log.error("Ошибка при отправке запроса к CisesInfo API", e);
-            throw new ExternalApiException.UnavailableException();
-        }
-    }
-
-    private HttpRequest createRequest(String body) {
-        return HttpRequest.newBuilder()
+        var request = HttpRequest.newBuilder()
                 .uri(URI.create("https://markirovka.crpt.ru/api/v3/true-api/cises/info"))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + getBearer())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .timeout(Duration.ofSeconds(60))
                 .build();
+        try {
+            var response = httpClient.send(request, BodyHandlers.ofString());
+
+            if (response.statusCode() == 401) {
+                bearer.set(null); // Сбрасываем токен при 401
+                throw new ExternalApiException.NotAuthenticated();
+            }
+
+            return response.body();
+        } catch (IOException | InterruptedException e) {
+            log.error("Ошибка при отправке запроса к CisesInfo API", e);
+            throw new ExternalApiException.UnavailableException();
+        }
     }
 
     @Retryable(

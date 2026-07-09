@@ -11,7 +11,6 @@ import java.util.UUID;
 
 @Getter
 @Setter
-@ToString(exclude = {"fileBytes", "file", "resource"})
 public class RequestDetails {
     private UUID id = UUID.randomUUID();
     private String fileName;

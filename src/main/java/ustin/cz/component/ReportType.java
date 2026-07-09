@@ -1,5 +1,5 @@
 package ustin.cz.component;
 
 public enum ReportType {
-    CIS_SEARCH
+    CIS_INFO
 }

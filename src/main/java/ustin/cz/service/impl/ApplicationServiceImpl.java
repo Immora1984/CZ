@@ -1,6 +1,5 @@
 package ustin.cz.service.impl;
 
-import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -15,8 +14,8 @@ import ustin.cz.service.ApplicationService;
 import ustin.cz.service.event.Event;
 
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -26,14 +25,21 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ApplicationServiceImpl implements ApplicationService {
 
     private final ApplicationEventPublisher eventPublisher;
-    private final SimpMessagingTemplate messagingTemplate;
     private final UserTaskLimiter userTaskLimiter;
+    private final ProgressMap progressMap;
 
     private final Map<UUID, RequestDetails> taskMap = new ConcurrentHashMap<>();
-    private final Map<String, ProgressInfo> progressMap = new ConcurrentHashMap<>();
 
     @Override
     public Response process(MultipartFile file, ReportType reportType, ColumnSelection columnSelection, String sessionId) {
+
+        if (sessionId == null || sessionId.isEmpty()) {
+            throw new IllegalArgumentException("Session ID не может быть пустым");
+        }
+
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Файл не может быть пустым");
+        }
 
         if (!userTaskLimiter.canAddTask(sessionId)) throw new UserTaskLimiterException.MaxLimit();
 
@@ -44,23 +50,28 @@ public class ApplicationServiceImpl implements ApplicationService {
         details.setStatus(RequestStatus.CREATED);
         details.setContentType(file.getContentType());
         details.setFileName(file.getOriginalFilename());
-
-        if (columnSelection != null && columnSelection.getSelectedColumns() != null
-                && !columnSelection.getSelectedColumns().isEmpty()) {
-            details.setSelectedColumns(columnSelection.getSelectedColumns());
-        } else {
-            details.setSelectedColumns(ColumnNames.getAllColumnNames());
-        }
-
+        details.setSelectedColumns(Optional.ofNullable(columnSelection)
+                .map(ColumnSelection::getSelectedColumns)
+                .orElse(ColumnNames.getAllColumnNames()));
         try {
             details.setFileBytes(file.getBytes());
         } catch (IOException e) {
+            details.setStatus(RequestStatus.ERROR);
+            taskMap.put(details.getId(), details);
             log.error("Ошибка сохранения файла", e);
             throw new FileProcessException.ErrorSave();
         }
 
         taskMap.put(details.getId(), details);
         userTaskLimiter.addUserTask(sessionId);
+
+        var progress = ProgressInfo.builder()
+                .status(RequestStatus.CREATED)
+                .taskId(details.getId())
+                .currentBatch(0)
+                .totalBatches(0)
+                .build();
+        progressMap.getProgressMap().put(sessionId, progress);
 
         var event = new Event(this, details);
         eventPublisher.publishEvent(event);
@@ -88,23 +99,12 @@ public class ApplicationServiceImpl implements ApplicationService {
 
     @Override
     public ProgressInfo getProgress(String sessionId) {
-        return progressMap.get(sessionId);
+        return progressMap.getProgressMap().get(sessionId);
     }
 
     @Override
-    public void updateProgress(String sessionId, ProgressInfo progress) {
-        progressMap.put(sessionId, progress);
-
-        try {
-            messagingTemplate.convertAndSendToUser(
-                    sessionId,
-                    "/queue/progress",
-                    progress
-            );
-            log.info("Сообщение отправлено в /queue/progress для пользователя {}", sessionId);
-
-        } catch (Exception e) {
-            log.error("Ошибка при отправке: ", e);
-        }
+    public void removeTask(UUID taskId) {
+        taskMap.remove(taskId);
+        log.info("Задача {} удалена из taskMap", taskId);
     }
 }

@@ -17,7 +17,5 @@ public interface ApplicationService {
 
     ProgressInfo getProgress(String sessionId);
 
-    void updateProgress(String sessionId, ProgressInfo progress);
-
-
+    void removeTask(UUID taskId);
 }
