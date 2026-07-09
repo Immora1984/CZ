@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
+import org.springframework.core.task.VirtualThreadTaskExecutor;
 import org.springframework.retry.annotation.EnableRetry;
 import org.springframework.scheduling.annotation.EnableAsync;
 import tools.jackson.databind.ObjectMapper;
@@ -11,6 +12,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 @Slf4j
 @EnableRetry
@@ -20,10 +22,7 @@ public class CZConfiguration {
 
     @Bean(name = "taskExcelExecutor")
     public Executor taskQueueExecutor() {
-        var executor = new SimpleAsyncTaskExecutor();
-        executor.setThreadNamePrefix("Virtual-Excel-");
-        executor.setConcurrencyLimit(Integer.MAX_VALUE);
-        return executor;
+        return new VirtualThreadTaskExecutor("virtual-");
     }
 
     @Bean

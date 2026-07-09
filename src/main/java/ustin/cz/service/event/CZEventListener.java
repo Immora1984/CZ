@@ -14,8 +14,8 @@ public class CZEventListener {
 
     private final ReportHandlerFactory reportHandlerFactory;
 
-    @Async
     @EventListener
+    @Async("taskExcelExecutor")
     public void handleEvent(Event event) {
         log.info("Событие получено: Task ID: {}", event.getRequestDetails().getId());
         reportHandlerFactory.getHandler(event.getRequestDetails().getReportType()).handle(event);
