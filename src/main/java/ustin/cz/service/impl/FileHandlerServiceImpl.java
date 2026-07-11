@@ -450,9 +450,11 @@ public class FileHandlerServiceImpl implements FileHandlerService {
     }
 
     private String createRequestBody(List<String> values) {
-        return values.stream()
-                .map(s -> "\"" + s.replace("\"", "\\\"") + "\"")
-                .collect(Collectors.joining(",", "[", "]"));
+        try {
+            return objectMapper.writeValueAsString(values);
+        } catch (Exception e) {
+            throw new RuntimeException("Ошибка сериализации списка CIS в JSON", e);
+        }
     }
 
     private String cleanResponse(String response) {

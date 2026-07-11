@@ -1,9 +1,10 @@
-package ustin.cz.component;
+package ustin.cz.component.websocket;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import ustin.cz.component.RequestStatus;
 
 import java.util.UUID;
 

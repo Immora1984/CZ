@@ -21,9 +21,7 @@ import java.util.concurrent.Executors;
 public class CZConfiguration {
 
     @Bean(name = "taskExcelExecutor")
-    public Executor taskQueueExecutor() {
-        return new VirtualThreadTaskExecutor("virtual-");
-    }
+    public Executor taskQueueExecutor() {return new VirtualThreadTaskExecutor("Excel-");}
 
     @Bean
     HttpClient httpClient() {

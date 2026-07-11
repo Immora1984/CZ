@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import ustin.cz.component.*;
+import ustin.cz.component.websocket.ProgressInfo;
 import ustin.cz.service.FileHandlerService;
 import ustin.cz.service.WebSocketService;
 import ustin.cz.service.event.Event;

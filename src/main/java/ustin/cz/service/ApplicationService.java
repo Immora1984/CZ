@@ -2,8 +2,8 @@ package ustin.cz.service;
 
 import org.springframework.core.io.Resource;
 import org.springframework.web.multipart.MultipartFile;
-import ustin.cz.component.ProgressInfo;
-import ustin.cz.component.Response;
+import ustin.cz.component.websocket.ProgressInfo;
+import ustin.cz.component.websocket.Response;
 import ustin.cz.component.ReportType;
 import ustin.cz.component.ColumnSelection;
 
