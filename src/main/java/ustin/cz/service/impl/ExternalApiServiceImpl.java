@@ -44,10 +44,9 @@ public class ExternalApiServiceImpl implements ExternalApiService {
             var response = httpClient.send(request, BodyHandlers.ofString());
 
             if (response.statusCode() == 401) {
-                bearer.set(null); // Сбрасываем токен при 401
+                bearer.set(null);
                 throw new ExternalApiException.NotAuthenticated();
             }
-
             return response.body();
         } catch (IOException | InterruptedException e) {
             log.error("Ошибка при отправке запроса к CisesInfo API", e);

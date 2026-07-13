@@ -53,7 +53,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         details.setFileName(file.getOriginalFilename());
         details.setSelectedColumns(Optional.ofNullable(columnSelection)
                 .map(ColumnSelection::getSelectedColumns)
-                .orElse(ColumnNames.getAllColumnNames()));
+                .orElse(ColumnNames.getAllNames()));
         try {
             details.setFileBytes(file.getBytes());
         } catch (IOException e) {
@@ -66,18 +66,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         taskMap.put(details.getId(), details);
         userTaskLimiter.addUserTask(sessionId);
 
-        var progress = ProgressInfo.builder()
-                .status(RequestStatus.CREATED)
-                .taskId(details.getId())
-                .currentBatch(0)
-                .totalBatches(0)
-                .build();
-        progressMap.getProgressMap().put(sessionId, progress);
-
-        var event = new Event(this, details);
-        eventPublisher.publishEvent(event);
-
-        log.info("Опубликовано событие по запросу с ID: {}", details.getId());
+        eventPublisher.publishEvent(new Event(this, details));
 
         return Response.builder()
                 .id(details.getId())

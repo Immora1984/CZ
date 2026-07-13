@@ -33,18 +33,8 @@ public class CisInfoReportHandlerImpl implements ReportHandler {
         var details = event.getRequestDetails();
         var sessionId = details.getSessionId();
 
-        if (!progressMap.getProgressMap().containsKey(sessionId)) {
-            log.warn("Прогресс не найден для сессии: {}", sessionId);
-            return;
-        }
-
         try {
             details.setStatus(RequestStatus.PROCESS);
-            updateProgress(sessionId, p -> {
-                p.setStatus(RequestStatus.PROCESS);
-                p.setTaskId(details.getId());
-                p.setErrorDetails(null);
-            });
 
             var jsonResult = fileHandlerService.workbookToJson(
                     fileHandlerService.downloadAndConvert(details),
@@ -54,7 +44,8 @@ public class CisInfoReportHandlerImpl implements ReportHandler {
 
             var resource = fileHandlerService.createResourceFromResponse(
                     jsonResult,
-                    details.getSelectedColumns()
+                    details.getSelectedColumns(),
+                    details.getReportType()
             );
 
             details.setResource(resource);
@@ -80,6 +71,7 @@ public class CisInfoReportHandlerImpl implements ReportHandler {
 
         } finally {
             userTaskLimiter.removeUserTask(sessionId);
+            progressMap.removeProgress(sessionId);
         }
     }
 

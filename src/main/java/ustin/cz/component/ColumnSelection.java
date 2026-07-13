@@ -11,6 +11,6 @@ public class ColumnSelection {
 
     @Getter
     @Setter
-    private Set<String> selectedColumns = ColumnNames.getAllColumnNames();
+    private Set<String> selectedColumns = ColumnNames.getAllNames();
 
 }
