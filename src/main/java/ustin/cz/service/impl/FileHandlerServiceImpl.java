@@ -14,12 +14,11 @@ import tools.jackson.core.JsonParser;
 import tools.jackson.core.JsonToken;
 import tools.jackson.databind.ObjectMapper;
 import ustin.cz.component.*;
-import ustin.cz.component.ColumnNames.CisInfoData;
+import ustin.cz.component.ColumnNames.ColumnExtractor;
 import ustin.cz.component.websocket.ProgressInfo;
 import ustin.cz.service.ExternalApiService;
 import ustin.cz.service.FileHandlerService;
 import ustin.cz.service.WebSocketService;
-import ustin.cz.service.handler.ParserHandler;
 import ustin.cz.service.handler.ParserHandlerFactory;
 
 import java.io.ByteArrayInputStream;
@@ -44,7 +43,7 @@ public class FileHandlerServiceImpl implements FileHandlerService {
     private final ProgressMap progressMap;
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
-    public static final Map<String, ColumnNames.ColumnExtractor> EXTRACTORS = ColumnNames.asExtractorMap();
+    public static final Map<String, ColumnExtractor> EXTRACTORS = ColumnNames.asExtractorMap();
 
     @Override
     public Workbook downloadAndConvert(RequestDetails details) {
@@ -54,6 +53,7 @@ public class FileHandlerServiceImpl implements FileHandlerService {
 
             if (isXlsx(bytes)) return new XSSFWorkbook(new ByteArrayInputStream(bytes));
             if (isXls(bytes))  return new HSSFWorkbook(new ByteArrayInputStream(bytes));
+
             return new HSSFWorkbook(new POIFSFileSystem(new ByteArrayInputStream(bytes)));
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -66,7 +66,7 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         if (values.isEmpty()) throw new RuntimeException("Файл пуст");
 
         var batches = splitIntoBatches(values);
-        StringJoiner joiner = new StringJoiner(",");
+        var joiner = new StringJoiner(",");
 
         for (int i = 0; i < batches.size(); i++) {
             try {
@@ -82,8 +82,12 @@ public class FileHandlerServiceImpl implements FileHandlerService {
                 progressMap.getProgressMap().put(sessionId, progress);
                 webSocketService.sendMessage(sessionId, progress);
 
-                try { Thread.sleep(500); }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); log.warn("..."); throw new RuntimeException(e); }
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.warn("...");
+                    throw new RuntimeException(e); }
             } catch (Exception e) {
                 log.error("Ошибка батча {}/{}", i + 1, batches.size(), e);
             }
@@ -93,13 +97,13 @@ public class FileHandlerServiceImpl implements FileHandlerService {
 
     @Override
     public Resource createResourceFromResponse(String json, Set<String> columns, ReportType reportType) {
-        var selectedColumns = prepareColumnList(columns);
+        var sortedColumns = ColumnNames.sortByOrder(prepareColumnList(columns));
+
         try (var wb = new SXSSFWorkbook(); var os = new ByteArrayOutputStream(16384)) {
             var sheet = wb.createSheet("CIS Info");
-            createHeader(sheet, selectedColumns, wb);
-            fillSheetWithData(sheet, json, selectedColumns, reportType);
+            createHeader(sheet, sortedColumns, wb);
+            fillSheetWithData(sheet, json, sortedColumns, reportType);
             wb.write(os);
-
             return buildResource(os.toByteArray());
         } catch (Exception e) {
             throw new RuntimeException("Ошибка создания Excel", e);

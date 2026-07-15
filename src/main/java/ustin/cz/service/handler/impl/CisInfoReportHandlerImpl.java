@@ -54,7 +54,6 @@ public class CisInfoReportHandlerImpl implements ReportHandler {
             updateProgress(sessionId, p -> {
                 p.setStatus(RequestStatus.SUCCESS);
                 p.setCurrentBatch(p.getTotalBatches());
-                p.setErrorDetails(null);
             });
 
             log.info("✅ Обработка {} отчета завершена для задачи: {}", getType(), details.getId());
