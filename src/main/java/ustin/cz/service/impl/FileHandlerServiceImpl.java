@@ -1,5 +1,6 @@
 package ustin.cz.service.impl;
 
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
@@ -43,16 +44,15 @@ public class FileHandlerServiceImpl implements FileHandlerService {
     private final ProgressMap progressMap;
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
-    public static final Map<String, ColumnExtractor> EXTRACTORS = ColumnNames.asExtractorMap();
 
     @Override
     public Workbook downloadAndConvert(RequestDetails details) {
         try {
-            byte[] bytes = details.getFileBytes();
+            var bytes = details.getFileBytes();
             if (bytes.length == 0) return null;
 
             if (isXlsx(bytes)) return new XSSFWorkbook(new ByteArrayInputStream(bytes));
-            if (isXls(bytes))  return new HSSFWorkbook(new ByteArrayInputStream(bytes));
+            if (isXls(bytes)) return new HSSFWorkbook(new ByteArrayInputStream(bytes));
 
             return new HSSFWorkbook(new POIFSFileSystem(new ByteArrayInputStream(bytes)));
         } catch (Exception e) {
@@ -87,7 +87,8 @@ public class FileHandlerServiceImpl implements FileHandlerService {
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     log.warn("...");
-                    throw new RuntimeException(e); }
+                    throw new RuntimeException(e);
+                }
             } catch (Exception e) {
                 log.error("Ошибка батча {}/{}", i + 1, batches.size(), e);
             }
@@ -104,6 +105,7 @@ public class FileHandlerServiceImpl implements FileHandlerService {
             createHeader(sheet, sortedColumns, wb);
             fillSheetWithData(sheet, json, sortedColumns, reportType);
             wb.write(os);
+
             return buildResource(os.toByteArray());
         } catch (Exception e) {
             throw new RuntimeException("Ошибка создания Excel", e);
@@ -114,24 +116,23 @@ public class FileHandlerServiceImpl implements FileHandlerService {
         return Optional.ofNullable(columns)
                 .orElse(ColumnNames.getAllNames())
                 .stream()
-                .filter(EXTRACTORS::containsKey)
+                .filter(ColumnNames.asExtractorMap()::containsKey)
                 .distinct()
                 .collect(Collectors.toList());
     }
-
 
     private void createHeader(Sheet sheet, List<String> selected, SXSSFWorkbook wb) {
         var header = sheet.createRow(0);
         var style = getHeaderStyle(wb);
         for (int i = 0; i < selected.size(); i++) {
-            Cell cell = header.createCell(i);
+            var cell = header.createCell(i);
             cell.setCellValue(selected.get(i));
             cell.setCellStyle(style);
         }
     }
 
     private void fillSheetWithData(Sheet sheet, String json, List<String> selected, ReportType type) {
-        try (JsonParser parser = objectMapper.createParser(json)) {
+        try (var parser = objectMapper.createParser(json)) {
             if (parser.nextToken() != JsonToken.START_ARRAY) throw new IllegalArgumentException("...");
 
             List<Object[]> buffer = new ArrayList<>(BUFFER_SIZE);
@@ -154,27 +155,26 @@ public class FileHandlerServiceImpl implements FileHandlerService {
     private Resource buildResource(byte[] content) {
         return new ByteArrayResource(content) {
             @Override
-            public String getFilename() { return "cis_info_" + LocalDateTime.now().format(DATE_FORMATTER) + ".xlsx"; }
+            public String getFilename() {return "cis_info_" + LocalDateTime.now().format(DATE_FORMATTER) + ".xlsx";}
         };
     }
 
     private int flushBuffer(List<Object[]> buffer, Sheet sheet, int startRow) {
         int currentRow = startRow;
         for (Object[] rowData : buffer) {
-            Row row = sheet.createRow(currentRow++);
+            var row = sheet.createRow(currentRow++);
             for (int i = 0; i < rowData.length; i++) {
-                Cell cell = row.createCell(i);
-                Object value = rowData[i];
+                var cell = row.createCell(i);
+                var value = rowData[i];
                 cell.setCellValue(value != null ? value.toString() : "");
             }
         }
         return currentRow;
     }
 
-
     private CellStyle getHeaderStyle(Workbook wb) {
-        CellStyle style = wb.createCellStyle();
-        Font font = wb.createFont();
+        var style = wb.createCellStyle();
+        var font = wb.createFont();
         font.setBold(true);
         font.setFontHeightInPoints((short) 12);
         style.setFont(font);
@@ -224,8 +224,10 @@ public class FileHandlerServiceImpl implements FileHandlerService {
 
     private boolean isXlsx(byte[] bytes) {
         return bytes.length >= 4 &&
-                bytes[0] == 0x50 && bytes[1] == 0x4B &&
-                bytes[2] == 0x03 && bytes[3] == 0x04;
+                bytes[0] == 0x50 &&
+                bytes[1] == 0x4B &&
+                bytes[2] == 0x03 &&
+                bytes[3] == 0x04;
     }
 
     private boolean isXls(byte[] bytes) {

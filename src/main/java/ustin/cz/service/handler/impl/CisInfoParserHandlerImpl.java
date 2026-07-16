@@ -12,14 +12,11 @@ import ustin.cz.service.handler.ParserHandler;
 import java.util.ArrayList;
 import java.util.List;
 
-import static ustin.cz.service.impl.FileHandlerServiceImpl.EXTRACTORS;
-
 @Component
 public class CisInfoParserHandlerImpl implements ParserHandler {
 
     @Override
     public ReportType getType() {return ReportType.CIS_INFO;}
-
 
     @Override
     public List<Object[]> parse(JsonParser parser, List<String> columns) {
@@ -68,7 +65,7 @@ public class CisInfoParserHandlerImpl implements ParserHandler {
     private Object[] toRowArray(CisInfoSetters data, CertDocSetters cert, List<String> columns) {
         var row = new Object[columns.size()];
         for (int i = 0; i < columns.size(); i++) {
-            row[i] = EXTRACTORS.get(columns.get(i)).extract(data, cert);
+            row[i] = ColumnNames.asExtractorMap().get(columns.get(i)).extract(data, cert);
         }
         return row;
     }

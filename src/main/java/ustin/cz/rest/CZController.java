@@ -15,9 +15,9 @@ import ustin.cz.component.*;
 import ustin.cz.component.websocket.Response;
 import ustin.cz.exception.WebSocketException;
 import ustin.cz.service.ApplicationService;
-import ustin.cz.service.WebSocketService;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Slf4j
@@ -25,39 +25,21 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class CZController {
 
-    private final WebSocketService webSocketService;
     private final ApplicationService applicationService;
 
     @PostMapping
-    public ResponseEntity<Response> processFile(
-            @RequestParam MultipartFile file,
-            @RequestParam ReportType reportType,
-            @RequestParam(required = false) ColumnSelection columnSelection,
-            @RequestHeader(value = "X-Session-ID") String sessionIdHeader) {
-
-        return ResponseEntity.ok(applicationService.process(
-                file,
-                reportType,
-                columnSelection,
-                sessionIdHeader
-        ));
+    public ResponseEntity<Response> processFile(@RequestParam MultipartFile file,
+                                                @RequestParam ReportType reportType,
+                                                @RequestHeader(value = "X-Session-ID") String sessionIdHeader,
+                                                @RequestParam(required = false) ColumnSelection columnSelection) {
+        return ResponseEntity.ok(applicationService.process(file, reportType, columnSelection, sessionIdHeader));
     }
 
     @MessageMapping("/progress")
     public void getCurrentProgress(@Payload Map<String, String> payload) {
-        var sessionId = payload.get("sessionId");
-
-        if (sessionId == null || sessionId.isEmpty()) throw new WebSocketException.SessionIdIsNotPresent();
-
-        var progress = applicationService.getProgress(sessionId);
-        if (progress != null) webSocketService.sendMessage(sessionId, progress);
-        else {
-            log.info("⚠️ Прогресс НЕ найден для сессии: {}", sessionId);
-
-            webSocketService.sendMessage(sessionId, Response.builder()
-                    .sessionId(sessionId)
-                    .build());
-        }
+        applicationService.getProgress(Optional.ofNullable(payload.get("sessionId"))
+                .filter(s -> !s.isEmpty())
+                .orElseThrow(WebSocketException.SessionIdIsNotPresent::new));
     }
 
     @GetMapping("/download/{id}")

@@ -20,8 +20,8 @@ public class CisInfoReportHandlerImpl implements ReportHandler {
 
     private final FileHandlerService fileHandlerService;
     private final WebSocketService webSocketService;
-    private final ProgressMap progressMap;
     private final UserTaskLimiter userTaskLimiter;
+    private final ProgressMap progressMap;
 
     @Override
     public ReportType getType() {

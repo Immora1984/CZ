@@ -13,3 +13,5 @@ frontend-host: ${FRONTEND_HOST}
 
 external-api:
   bearer-url: ${EXTERNAL_API_BEARER_URL}
+  cises-info: ${EXTERNAL_API_CISES_INFO}
+  credentials: ${EXTERNAL_API_CREDENTIALS}

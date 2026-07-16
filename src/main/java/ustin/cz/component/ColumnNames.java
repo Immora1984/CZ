@@ -37,11 +37,11 @@ public enum ColumnNames {
     APPLICATION_DATE("Application Date", (d, c) -> d.getApplicationDate()),
     INTRODUCED_DATE("Introduced Date", (d, c) -> d.getIntroducedDate()),
     PRODUCED_DATE("Produced Date", (d, c) -> d.getProducedDate()),
-    CERTIFICATE_TYPE("Certificate Type", (d, c) -> c != null ? c.getType() : "Нет данных"),
-    CERTIFICATE_NUMBER("Certificate Number", (d, c) -> c != null ? c.getNumber() : "Нет данных"),
-    CERTIFICATE_DATE("Certificate Date", (d, c) -> c != null ? c.getDate() : "Нет данных"),
-    CERTIFICATE_STATUS_GROUP("Certificate Status Group", (d, c) -> c != null ? c.getStatusGroup() : "Нет данных"),
-    CERTIFICATE_INDEX("Certificate Index", (d, c) -> c != null ? c.getIndx() : "Нет данных");
+    CERTIFICATE_TYPE("Certificate Type", (d, c) -> c == null ? null : c.getType()),
+    CERTIFICATE_NUMBER("Certificate Number", (d, c) -> c == null ? null : c.getNumber()),
+    CERTIFICATE_DATE("Certificate Date", (d, c) -> c == null ? null : c.getDate()),
+    CERTIFICATE_STATUS_GROUP("Certificate Status Group", (d, c) -> c == null ? null : c.getStatusGroup()),
+    CERTIFICATE_INDEX("Certificate Index", (d, c) -> c == null ? null : c.getIndx());
 
     @Getter
     private final String displayName;
@@ -64,9 +64,7 @@ public enum ColumnNames {
     }
 
 
-    public String extract(CisInfoSetters data, CertDocSetters cert) {
-        return extractor.apply(data, cert);
-    }
+    public String extract(CisInfoSetters data, CertDocSetters cert) {return extractor.apply(data, cert);}
 
     public static Set<String> getAllNames() {
         return Arrays.stream(values())

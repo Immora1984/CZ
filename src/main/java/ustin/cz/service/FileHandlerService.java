@@ -16,4 +16,5 @@ public interface FileHandlerService {
     String workbookToJson(Workbook workbook, String sessionId, UUID taskId);
 
     Resource createResourceFromResponse(String jsonResponse, Set<String> selectedColumns, ReportType reportType);
+
 }
